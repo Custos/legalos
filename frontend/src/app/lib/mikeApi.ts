@@ -130,6 +130,7 @@ export interface CounterpartyGroup {
     counterparty: string;
     parent_counterparty: string | null;
     project_count: number;
+    standalone_count: number;
     last_activity: string;
     projects: { id: string; name: string; updated_at: string }[];
 }

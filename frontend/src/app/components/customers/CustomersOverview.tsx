@@ -93,6 +93,10 @@ export function CustomersOverview() {
         (acc, g) => acc + g.project_count,
         0,
     );
+    const totalStandalone = filtered.reduce(
+        (acc, g) => acc + (g.standalone_count ?? 0),
+        0,
+    );
 
     return (
         <div className="flex-1 overflow-y-auto bg-white">
@@ -133,6 +137,8 @@ export function CustomersOverview() {
                           filtered.length === 1 ? "counterparty" : "counterparties"
                       } · ${totalProjects} ${
                           totalProjects === 1 ? "project" : "projects"
+                      } · ${totalStandalone} standalone ${
+                          totalStandalone === 1 ? "doc" : "docs"
                       }`}
             </div>
 
@@ -140,8 +146,10 @@ export function CustomersOverview() {
                 {!loading && filtered.length === 0 ? (
                     <div className="text-sm text-gray-400 py-12 text-center">
                         {role === "seller"
-                            ? "No customer-template projects yet. Create one and set its counterparty to start the index."
-                            : "Nothing here yet."}
+                            ? "No customers yet. Upload contracts where you're the seller — they'll show up here automatically."
+                            : role === "buyer"
+                              ? "No vendors yet. Upload contracts where you're the buyer."
+                              : "Nothing here yet."}
                     </div>
                 ) : (
                     <div className="border border-gray-100 rounded-lg overflow-hidden">
@@ -191,14 +199,23 @@ export function CustomersOverview() {
                                             <GitMerge className="h-3.5 w-3.5" />
                                         </button>
                                     )}
-                                    <div className="text-xs text-gray-500 shrink-0">
-                                        {g.project_count}{" "}
-                                        {g.project_count === 1
-                                            ? "project"
-                                            : "projects"}
+                                    <div className="text-xs text-gray-500 shrink-0 flex items-center gap-2">
+                                        <span>
+                                            {g.project_count}{" "}
+                                            {g.project_count === 1
+                                                ? "project"
+                                                : "projects"}
+                                        </span>
+                                        {g.standalone_count > 0 && (
+                                            <span className="text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-1.5 py-0">
+                                                +{g.standalone_count} standalone
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-xs text-gray-400 shrink-0 w-24 text-right">
-                                        {relTime(g.last_activity)}
+                                        {g.last_activity
+                                            ? relTime(g.last_activity)
+                                            : "—"}
                                     </div>
                                 </summary>
                                 {mergingFrom === g.counterparty && (
@@ -277,6 +294,24 @@ export function CustomersOverview() {
                                                 </span>
                                             </button>
                                         ))}
+                                    {g.standalone_count > 0 && (
+                                        <button
+                                            onClick={() =>
+                                                router.push(
+                                                    `/customers/${encodeURIComponent(g.counterparty)}`,
+                                                )
+                                            }
+                                            className="w-full flex items-center justify-between px-10 py-2 text-left text-xs text-amber-700 hover:bg-amber-50 transition-colors border-t border-gray-100"
+                                        >
+                                            <span>
+                                                {g.standalone_count} standalone{" "}
+                                                {g.standalone_count === 1
+                                                    ? "document"
+                                                    : "documents"}{" "}
+                                                — view full timeline →
+                                            </span>
+                                        </button>
+                                    )}
                                 </div>
                             </details>
                         ))}

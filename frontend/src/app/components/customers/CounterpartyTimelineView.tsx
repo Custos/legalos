@@ -65,11 +65,19 @@ export function CounterpartyTimelineView({ name }: { name: string }) {
         };
     }, [name]);
 
-    // Build a per-project timeline grouping the docs and facts.
+    // Build a per-project timeline grouping the docs and facts. Standalone
+    // documents (project_id is null) are bucketed under a synthetic
+    // "Unassigned" entry at the top so they're visible even when no
+    // projects exist for this counterparty yet.
     const timeline = useMemo(() => {
         if (!data) return [];
         const docsByProject = new Map<string, typeof data.documents>();
+        const standaloneDocs: typeof data.documents = [];
         for (const d of data.documents) {
+            if (!d.project_id) {
+                standaloneDocs.push(d);
+                continue;
+            }
             const list = docsByProject.get(d.project_id) ?? [];
             list.push(d);
             docsByProject.set(d.project_id, list);
@@ -81,7 +89,24 @@ export function CounterpartyTimelineView({ name }: { name: string }) {
             list.push(f);
             factsByProject.set(f.project_id, list);
         }
-        return [...data.projects]
+        type Row = {
+            project: typeof data.projects[number] | {
+                id: string;
+                name: string;
+                counterparty: string | null;
+                parent_counterparty: string | null;
+                role: "buyer" | "seller" | "mutual" | null;
+                template: string | null;
+                created_at: string;
+                updated_at: string;
+            };
+            docs: typeof data.documents;
+            facts: typeof data.facts;
+            latestFact: typeof data.facts[number] | undefined;
+            sortKey: string;
+            isStandalone: boolean;
+        };
+        const projectRows: Row[] = [...data.projects]
             .sort((a, b) => a.created_at.localeCompare(b.created_at))
             .map((p) => {
                 const docs = docsByProject.get(p.id) ?? [];
@@ -92,9 +117,44 @@ export function CounterpartyTimelineView({ name }: { name: string }) {
                     latestFact?.effective_date ||
                     earliestDoc?.created_at ||
                     p.created_at;
-                return { project: p, docs, facts, latestFact, sortKey };
-            })
-            .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+                return {
+                    project: p,
+                    docs,
+                    facts,
+                    latestFact,
+                    sortKey,
+                    isStandalone: false,
+                };
+            });
+        const allRows: Row[] = [...projectRows];
+        if (standaloneDocs.length > 0) {
+            standaloneDocs.sort((a, b) =>
+                a.created_at.localeCompare(b.created_at),
+            );
+            allRows.push({
+                project: {
+                    id: "__standalone__",
+                    name: `${standaloneDocs.length} unassigned ${
+                        standaloneDocs.length === 1 ? "document" : "documents"
+                    }`,
+                    counterparty: data.counterparty,
+                    parent_counterparty: null,
+                    role: null,
+                    template: null,
+                    created_at: standaloneDocs[0].created_at,
+                    updated_at:
+                        standaloneDocs[standaloneDocs.length - 1].created_at,
+                },
+                docs: standaloneDocs,
+                facts: [] as typeof data.facts,
+                latestFact: undefined as typeof data.facts[number] | undefined,
+                sortKey: standaloneDocs[0].created_at,
+                isStandalone: true,
+            });
+        }
+        return allRows.sort((a, b) =>
+            a.sortKey.localeCompare(b.sortKey),
+        );
     }, [data]);
 
     // Total contract value across the latest fact for each project
@@ -159,7 +219,7 @@ export function CounterpartyTimelineView({ name }: { name: string }) {
                     <div className="text-sm text-gray-400">Loading…</div>
                 ) : !data || timeline.length === 0 ? (
                     <div className="text-sm text-gray-400 text-center py-12">
-                        No projects assigned to this counterparty yet.
+                        Nothing here yet.
                     </div>
                 ) : (
                     <div className="relative">
@@ -170,21 +230,30 @@ export function CounterpartyTimelineView({ name }: { name: string }) {
                                 key={row.project.id}
                                 className="relative pl-10 pb-8 last:pb-0"
                             >
-                                <div className="absolute left-0.5 top-1 h-5 w-5 rounded-full border-2 border-gray-300 bg-white flex items-center justify-center">
+                                <div className={`absolute left-0.5 top-1 h-5 w-5 rounded-full border-2 ${row.isStandalone ? "border-amber-300" : "border-gray-300"} bg-white flex items-center justify-center`}>
                                     <span className="text-[10px] font-medium text-gray-500">
                                         {i + 1}
                                     </span>
                                 </div>
-                                <button
-                                    onClick={() =>
-                                        router.push(
-                                            `/projects/${row.project.id}`,
-                                        )
-                                    }
-                                    className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors text-left"
-                                >
-                                    {row.project.name}
-                                </button>
+                                {row.isStandalone ? (
+                                    <button
+                                        onClick={() => router.push("/intake")}
+                                        className="text-sm font-medium text-amber-700 hover:text-amber-900 transition-colors text-left"
+                                    >
+                                        {row.project.name} — go to /intake
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() =>
+                                            router.push(
+                                                `/projects/${row.project.id}`,
+                                            )
+                                        }
+                                        className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors text-left"
+                                    >
+                                        {row.project.name}
+                                    </button>
+                                )}
                                 <div className="text-[11px] text-gray-500 mt-0.5">
                                     {row.project.template && (
                                         <span className="capitalize">
