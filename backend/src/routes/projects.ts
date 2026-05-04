@@ -19,6 +19,7 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
   const userEmail = res.locals.userEmail as string;
   const db = createServerSupabase();
+  try {
 
   const { data: ownProjects, error: ownError } = await db
     .from("projects")
@@ -31,7 +32,7 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
     ? await db
         .from("projects")
         .select("*")
-        .contains("shared_with", [userEmail])
+        .contains("shared_with", JSON.stringify([userEmail]))
         .neq("user_id", userId)
         .order("created_at", { ascending: false })
     : { data: [], error: null };
@@ -69,6 +70,10 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
     }),
   );
   res.json(result);
+  } catch (e) {
+    console.error("[GET /projects] error:", e);
+    res.status(500).json({ detail: (e as Error).message ?? "unknown" });
+  }
 });
 
 // POST /projects

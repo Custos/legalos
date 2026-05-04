@@ -35,6 +35,7 @@ import {
     isModelAvailable,
     type ModelProvider,
 } from "@/app/lib/modelAvailability";
+import { ModelToggle } from "../assistant/ModelToggle";
 import { TRSidePanel } from "./TRSidePanel";
 import { TRTable } from "./TRTable";
 import type { TRTableHandle } from "./TRTable";
@@ -86,7 +87,7 @@ export function TRView({ reviewId, projectId }: Props) {
     const actionsRef = useRef<HTMLDivElement>(null);
     const tableRef = useRef<TRTableHandle>(null);
     const router = useRouter();
-    const { profile } = useUserProfile();
+    const { profile, updateModelPreference } = useUserProfile();
     const apiKeys = {
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
@@ -534,6 +535,13 @@ export function TRView({ reviewId, projectId }: Props) {
                     {!loading && (
                         <div className="flex items-center gap-2">
                             <HeaderSearchBtn value={search} onChange={setSearch} placeholder="Search documents…" />
+                            <ModelToggle
+                                value={tabularModel}
+                                onChange={(id) =>
+                                    updateModelPreference("tabularModel", id)
+                                }
+                                apiKeys={apiKeys}
+                            />
                             {!projectId && (
                                 <button
                                     onClick={() => setPeopleModalOpen(true)}
