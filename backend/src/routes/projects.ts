@@ -13,6 +13,7 @@ import { singleFileUpload } from "../lib/upload";
 import { PROJECT_TEMPLATES, getTemplate } from "../lib/projectTemplates";
 import { maybeAutofillCounterparty } from "../lib/counterpartyExtraction";
 import { maybeExtractContractFacts } from "../lib/contractFacts";
+import { maybeAnalyzeIntake } from "../lib/intakeAnalysis";
 
 export const projectsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -926,6 +927,11 @@ export async function handleDocumentUpload(
       documentId: doc.id as string,
       userId,
     });
+    // Always run intake classification — populates role, status, lifecycle
+    // hint, and counterparty even for project-attached uploads (the
+    // /intake page filters to project_id IS NULL but the data is useful
+    // everywhere).
+    void maybeAnalyzeIntake({ documentId: doc.id as string, userId });
     return void res.status(201).json(responseDoc);
   } catch (e) {
     await db.from("documents").update({ status: "error" }).eq("id", doc.id);

@@ -174,6 +174,70 @@ export async function listProjectFacts(
     return apiRequest(`/projects/${projectId}/facts`);
 }
 
+export interface IntakeDocument {
+    id: string;
+    filename: string;
+    file_type: string;
+    page_count: number | null;
+    created_at: string;
+    intake_role: "buyer" | "seller" | "mutual" | null;
+    intake_status: "draft" | "execution" | "unknown" | null;
+    intake_counterparty: string | null;
+    intake_parent_counterparty: string | null;
+    intake_lifecycle_hint: string | null;
+    intake_confidence: number | null;
+    intake_analyzed_at: string | null;
+}
+
+export interface IntakeProjectsRow {
+    id: string;
+    name: string;
+    counterparty: string | null;
+    parent_counterparty: string | null;
+    role: "buyer" | "seller" | "mutual" | null;
+    template: string | null;
+}
+
+export async function listIntake(): Promise<{
+    documents: IntakeDocument[];
+    projects: IntakeProjectsRow[];
+}> {
+    return apiRequest("/single-documents/intake");
+}
+
+export async function uploadIntakeDocument(file: File): Promise<unknown> {
+    const authHeaders = await getAuthHeader();
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${API_BASE}/single-documents`, {
+        method: "POST",
+        headers: { ...authHeaders },
+        body: fd,
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+}
+
+export async function assignDocumentToProject(
+    documentId: string,
+    payload:
+        | { project_id: string }
+        | {
+              new_project: {
+                  name: string;
+                  template?: string;
+                  counterparty?: string;
+                  parent_counterparty?: string;
+              };
+          },
+): Promise<{ ok: boolean; project_id: string }> {
+    return apiRequest(`/single-documents/${documentId}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
     await apiRequest(`/projects/${projectId}`, { method: "DELETE" });
 }

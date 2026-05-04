@@ -24,6 +24,8 @@ import {
 import { ensureDocAccess } from "../lib/access";
 import { singleFileUpload } from "../lib/upload";
 import { maybeExtractContractFacts } from "../lib/contractFacts";
+import { maybeAnalyzeIntake } from "../lib/intakeAnalysis";
+import { getTemplate } from "../lib/projectTemplates";
 
 export const documentsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -57,6 +59,118 @@ documentsRouter.post(
     const userId = res.locals.userId as string;
     const db = createServerSupabase();
     await handleDocumentUpload(req, res, userId, null, db);
+  },
+);
+
+// GET /single-documents/intake
+// Lists project-less documents the user has uploaded, with the LLM-derived
+// intake classification (role, status, counterparty, lifecycle hint) and
+// any matching counterparties from the user's existing projects so the
+// triage UI can suggest "merge into Acme Inc.".
+documentsRouter.get("/intake", requireAuth, async (_req, res) => {
+  const userId = res.locals.userId as string;
+  const db = createServerSupabase();
+
+  const { data: docs, error } = await db
+    .from("documents")
+    .select(
+      "id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_parent_counterparty, intake_lifecycle_hint, intake_confidence, intake_analyzed_at",
+    )
+    .eq("user_id", userId)
+    .is("project_id", null)
+    .order("created_at", { ascending: false });
+  if (error) return void res.status(500).json({ detail: error.message });
+
+  const { data: projects } = await db
+    .from("projects")
+    .select("id, name, counterparty, parent_counterparty, role, template")
+    .eq("user_id", userId);
+  res.json({ documents: docs ?? [], projects: projects ?? [] });
+});
+
+// POST /single-documents/:documentId/assign
+// Body:
+//   { project_id: string }                                          → assign to existing
+//   { new_project: { name, template?, counterparty? } }             → create + assign
+// On create, the new project inherits role from the template.
+documentsRouter.post(
+  "/:documentId/assign",
+  requireAuth,
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const { documentId } = req.params;
+    const body = req.body as {
+      project_id?: string;
+      new_project?: {
+        name?: string;
+        template?: string;
+        counterparty?: string;
+        parent_counterparty?: string;
+      };
+    };
+    const db = createServerSupabase();
+
+    const { data: doc } = await db
+      .from("documents")
+      .select("id, user_id, project_id")
+      .eq("id", documentId)
+      .single();
+    if (!doc || doc.user_id !== userId)
+      return void res.status(404).json({ detail: "Document not found" });
+    if (doc.project_id)
+      return void res
+        .status(400)
+        .json({ detail: "Document already assigned" });
+
+    let targetProjectId: string;
+    if (body.project_id) {
+      const { data: target } = await db
+        .from("projects")
+        .select("id, user_id")
+        .eq("id", body.project_id)
+        .single();
+      if (!target || target.user_id !== userId)
+        return void res.status(404).json({ detail: "Project not found" });
+      targetProjectId = target.id as string;
+    } else if (body.new_project?.name?.trim()) {
+      const tmpl = body.new_project.template
+        ? getTemplate(body.new_project.template)
+        : null;
+      const { data: created, error: createErr } = await db
+        .from("projects")
+        .insert({
+          user_id: userId,
+          name: body.new_project.name.trim(),
+          template: tmpl?.slug ?? null,
+          role: tmpl?.role ?? null,
+          counterparty:
+            body.new_project.counterparty?.trim() || null,
+          parent_counterparty:
+            body.new_project.parent_counterparty?.trim() || null,
+        })
+        .select("id")
+        .single();
+      if (createErr || !created)
+        return void res
+          .status(500)
+          .json({ detail: createErr?.message ?? "Failed to create project" });
+      targetProjectId = created.id as string;
+    } else {
+      return void res
+        .status(400)
+        .json({ detail: "project_id or new_project required" });
+    }
+
+    const { error: assignErr } = await db
+      .from("documents")
+      .update({
+        project_id: targetProjectId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", documentId);
+    if (assignErr)
+      return void res.status(500).json({ detail: assignErr.message });
+    res.json({ ok: true, project_id: targetProjectId });
   },
 );
 
@@ -968,6 +1082,15 @@ async function handleDocumentUpload(
     const responseDoc = updated
       ? { ...updated, storage_path: key, pdf_storage_path: pdfStoragePath }
       : updated;
+    // Intake classification + facts run fire-and-forget. For standalone
+    // (project_id=null) docs this is what populates the /intake triage
+    // queue; for project-attached uploads it back-fills the same fields.
+    void maybeAnalyzeIntake({ documentId: doc.id as string, userId });
+    void maybeExtractContractFacts({
+      projectId,
+      documentId: doc.id as string,
+      userId,
+    });
     return void res.status(201).json(responseDoc);
   } catch (e) {
     await db.from("documents").update({ status: "error" }).eq("id", doc.id);
