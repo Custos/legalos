@@ -85,12 +85,19 @@ export async function createProject(
     name: string,
     cm_number?: string,
     shared_with?: string[],
+    template?: string,
 ): Promise<MikeProject> {
     return apiRequest<MikeProject>("/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, cm_number, shared_with }),
+        body: JSON.stringify({ name, cm_number, shared_with, template }),
     });
+}
+
+export async function listProjectTemplates(): Promise<
+    import("../components/shared/types").ProjectTemplate[]
+> {
+    return apiRequest("/projects/templates");
 }
 
 export async function deleteAccount(): Promise<void> {

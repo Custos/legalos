@@ -4,10 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, FolderOpen, ChevronDown } from "lucide-react";
 import { HeaderSearchBtn } from "@/app/components/shared/HeaderSearchBtn";
-import { listProjects, updateProject, deleteProject } from "@/app/lib/mikeApi";
+import {
+    listProjects,
+    listProjectTemplates,
+    updateProject,
+    deleteProject,
+} from "@/app/lib/mikeApi";
 import { OwnerOnlyModal } from "@/app/components/shared/OwnerOnlyModal";
 import { useAuth } from "@/contexts/AuthContext";
-import type { MikeProject } from "@/app/components/shared/types";
+import type { MikeProject, ProjectTemplate } from "@/app/components/shared/types";
 import { NewProjectModal } from "./NewProjectModal";
 import { ToolbarTabs } from "@/app/components/shared/ToolbarTabs";
 import { RowActions } from "@/app/components/shared/RowActions";
@@ -37,6 +42,8 @@ export function ProjectsOverview() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
+    const [templateFilter, setTemplateFilter] = useState<string | null>(null);
     const [ownerOnlyAction, setOwnerOnlyAction] = useState<string | null>(null);
     const actionsRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
@@ -47,6 +54,9 @@ export function ProjectsOverview() {
             .then(setProjects)
             .catch(() => setProjects([]))
             .finally(() => setLoading(false));
+        listProjectTemplates()
+            .then(setTemplates)
+            .catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -72,12 +82,16 @@ export function ProjectsOverview() {
             : activeTab === "mine"
               ? projects.filter((p) => p.is_owner ?? p.user_id === user?.id)
               : projects.filter((p) => !(p.is_owner ?? p.user_id === user?.id))
-    ).filter(
-        (p) =>
-            !q ||
-            p.name.toLowerCase().includes(q) ||
-            (p.cm_number ?? "").toLowerCase().includes(q),
-    );
+    )
+        .filter(
+            (p) =>
+                !q ||
+                p.name.toLowerCase().includes(q) ||
+                (p.cm_number ?? "").toLowerCase().includes(q),
+        )
+        .filter(
+            (p) => !templateFilter || (p.template ?? null) === templateFilter,
+        );
 
     const allSelected =
         filtered.length > 0 &&
@@ -201,6 +215,38 @@ export function ProjectsOverview() {
                 onChange={setActiveTab}
                 actions={toolbarActions}
             />
+
+            {templates.length > 0 && (
+                <div className="flex items-center gap-2 px-8 pb-3 -mt-1 flex-wrap">
+                    <button
+                        onClick={() => setTemplateFilter(null)}
+                        className={`text-xs rounded-full px-3 py-1 border transition-colors ${
+                            templateFilter === null
+                                ? "border-gray-900 bg-gray-900 text-white"
+                                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                    >
+                        All types
+                    </button>
+                    {templates.map((t) => (
+                        <button
+                            key={t.slug}
+                            onClick={() =>
+                                setTemplateFilter(
+                                    templateFilter === t.slug ? null : t.slug,
+                                )
+                            }
+                            className={`text-xs rounded-full px-3 py-1 border transition-colors ${
+                                templateFilter === t.slug
+                                    ? "border-gray-900 bg-gray-900 text-white"
+                                    : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                            }`}
+                        >
+                            {t.name}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* Table */}
             <div className="w-full overflow-x-auto">

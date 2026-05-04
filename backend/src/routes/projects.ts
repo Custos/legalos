@@ -10,6 +10,7 @@ import { downloadFile, uploadFile, storageKey } from "../lib/storage";
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
 import { singleFileUpload } from "../lib/upload";
+import { PROJECT_TEMPLATES, getTemplate } from "../lib/projectTemplates";
 
 export const projectsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -79,13 +80,18 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
 // POST /projects
 projectsRouter.post("/", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
-  const { name, cm_number, shared_with } = req.body as {
+  const { name, cm_number, shared_with, template } = req.body as {
     name: string;
     cm_number?: string;
     shared_with?: string[];
+    template?: string;
   };
   if (!name?.trim())
     return void res.status(400).json({ detail: "name is required" });
+
+  const tmpl = template ? getTemplate(template) : null;
+  if (template && !tmpl)
+    return void res.status(400).json({ detail: `Unknown template: ${template}` });
 
   const db = createServerSupabase();
   const { data, error } = await db
@@ -95,11 +101,20 @@ projectsRouter.post("/", requireAuth, async (req, res) => {
       name: name.trim(),
       cm_number: cm_number ?? null,
       shared_with: shared_with ?? [],
+      template: tmpl?.slug ?? null,
+      role: tmpl?.role ?? null,
     })
     .select("*")
     .single();
   if (error) return void res.status(500).json({ detail: error.message });
   res.status(201).json({ ...data, documents: [] });
+});
+
+// GET /projects/templates — registry of available project templates.
+// Returned to the frontend so the New Project modal can render the picker
+// without duplicating the list client-side.
+projectsRouter.get("/templates", requireAuth, async (_req, res) => {
+  res.json(PROJECT_TEMPLATES);
 });
 
 // GET /projects/:projectId

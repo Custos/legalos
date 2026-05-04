@@ -1,16 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Users, Upload } from "lucide-react";
 import {
     addDocumentToProject,
     createProject,
+    listProjectTemplates,
     uploadProjectDocument,
 } from "@/app/lib/mikeApi";
 import { useDirectoryData } from "../shared/useDirectoryData";
 import { FileDirectory } from "../shared/FileDirectory";
 import { EmailPillInput } from "../shared/EmailPillInput";
-import type { MikeProject } from "../shared/types";
+import type { MikeProject, ProjectTemplate } from "../shared/types";
 
 interface Props {
     open: boolean;
@@ -27,7 +28,16 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
+    const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!open || templates.length > 0) return;
+        listProjectTemplates()
+            .then(setTemplates)
+            .catch(() => {});
+    }, [open, templates.length]);
 
     const { loading: dirLoading, standaloneDocuments, projects: dirProjects } = useDirectoryData(open);
 
@@ -50,6 +60,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
                 name.trim(),
                 cmNumber.trim() || undefined,
                 sharedEmails,
+                selectedTemplate ?? undefined,
             );
             await Promise.all([
                 ...[...selectedDocIds].map((id) => addDocumentToProject(project.id, id).catch(() => {})),
@@ -72,6 +83,7 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
         setShowMembers(false);
         setSelectedDocIds(new Set());
         setPendingFiles([]);
+        setSelectedTemplate(null);
         setError("");
     }
 
@@ -118,6 +130,39 @@ export function NewProjectModal({ open, onClose, onCreated }: Props) {
                             placeholder="Add a CM number..."
                             className="mt-1.5 w-full text-sm text-gray-500 placeholder-gray-300 focus:outline-none bg-transparent"
                         />
+
+                        {/* Template picker */}
+                        {templates.length > 0 && (
+                            <div className="mt-4">
+                                <p className="text-xs font-medium text-gray-700 mb-2">
+                                    Type
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {templates.map((t) => {
+                                        const active = selectedTemplate === t.slug;
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={t.slug}
+                                                onClick={() =>
+                                                    setSelectedTemplate(
+                                                        active ? null : t.slug,
+                                                    )
+                                                }
+                                                title={t.description}
+                                                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                                                    active
+                                                        ? "border-gray-900 bg-gray-900 text-white"
+                                                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                                                }`}
+                                            >
+                                                {t.name}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Attribute pills */}
                         <div className="mt-4 flex flex-wrap items-center gap-2">

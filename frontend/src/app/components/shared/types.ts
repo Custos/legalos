@@ -17,6 +17,8 @@ export interface MikeProject {
   name: string;
   cm_number: string | null;
   shared_with: string[];
+  template?: string | null;
+  role?: "buyer" | "seller" | "mutual" | null;
   created_at: string;
   updated_at: string;
   documents?: MikeDocument[];
@@ -24,6 +26,13 @@ export interface MikeProject {
   document_count?: number;
   chat_count?: number;
   review_count?: number;
+}
+
+export interface ProjectTemplate {
+  slug: string;
+  name: string;
+  description: string;
+  role: "buyer" | "seller" | "mutual";
 }
 
 export interface MikeDocument {
