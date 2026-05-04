@@ -12,11 +12,20 @@ export function getModelProvider(modelId: string): ModelProvider | null {
 
 export function isModelAvailable(
     modelId: string,
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    apiKeys: {
+        claudeApiKey: string | null;
+        geminiApiKey: string | null;
+        xaiApiKey?: string | null;
+    },
 ): boolean {
     const provider = getModelProvider(modelId);
     if (!provider) return false;
-    if (provider === "xai") return true; // server-side env key
+    // xAI: a per-user key in apiKeys.xaiApiKey is preferred; the backend
+    // falls back to the env XAI_API_KEY if the user hasn't supplied one,
+    // so xai is treated as available whenever the user *has* a key OR we
+    // assume the env fallback exists. Show as available unconditionally
+    // — calls will fail at runtime if no key is configured anywhere.
+    if (provider === "xai") return true;
     return provider === "claude"
         ? !!apiKeys.claudeApiKey?.trim()
         : !!apiKeys.geminiApiKey?.trim();
@@ -24,7 +33,11 @@ export function isModelAvailable(
 
 export function isProviderAvailable(
     provider: ModelProvider,
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    apiKeys: {
+        claudeApiKey: string | null;
+        geminiApiKey: string | null;
+        xaiApiKey?: string | null;
+    },
 ): boolean {
     if (provider === "xai") return true;
     return provider === "claude"
