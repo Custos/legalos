@@ -140,6 +140,29 @@ export async function listCounterparties(
     return apiRequest(`/projects/counterparties?role=${encodeURIComponent(role)}`);
 }
 
+export interface ContractFactsRow {
+    id: string;
+    project_id: string | null;
+    document_id: string;
+    document_version_id: string | null;
+    effective_date: string | null;
+    term_months: number | null;
+    total_value_minor: number | null;
+    currency: string | null;
+    auto_renew: boolean | null;
+    notice_days: number | null;
+    governing_law: string | null;
+    raw_extraction: unknown;
+    model: string | null;
+    extracted_at: string;
+}
+
+export async function listProjectFacts(
+    projectId: string,
+): Promise<ContractFactsRow[]> {
+    return apiRequest(`/projects/${projectId}/facts`);
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
     await apiRequest(`/projects/${projectId}`, { method: "DELETE" });
 }

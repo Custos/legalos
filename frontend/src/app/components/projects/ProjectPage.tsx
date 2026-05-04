@@ -62,6 +62,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { UploadNewVersionModal } from "@/app/components/shared/UploadNewVersionModal";
 import { DocViewModal } from "@/app/components/shared/DocViewModal";
 import { AddNewTRModal } from "@/app/components/tabular/AddNewTRModal";
+import { KeyTermsPanel } from "./KeyTermsPanel";
 import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
 
 interface Props {
@@ -1393,6 +1394,19 @@ export function ProjectPage({ projectId }: Props) {
                 {/* Tab: Documents */}
                 {tab === "documents" && (
                     <div className="flex-1 flex flex-col min-h-0">
+                        {/* Key terms panel (collapsible) — auto-extracted from uploads */}
+                        <details className="border-b border-gray-100 group" open>
+                            <summary className="cursor-pointer flex items-center gap-2 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors select-none">
+                                <span className="group-open:rotate-90 transition-transform">›</span>
+                                Key terms
+                            </summary>
+                            <KeyTermsPanel
+                                projectId={projectId}
+                                filenameByDocId={Object.fromEntries(
+                                    docs.map((d) => [d.id, d.filename]),
+                                )}
+                            />
+                        </details>
                         {/* Table header */}
                         <div className="flex items-center h-8 pr-8 border-b border-gray-200 text-xs text-gray-500 font-medium select-none shrink-0">
                             <div className={`sticky left-0 z-[60] ${CHECK_W} relative bg-white flex items-center justify-center self-stretch before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-white`}>

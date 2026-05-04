@@ -12,6 +12,7 @@ import { checkProjectAccess } from "../lib/access";
 import { singleFileUpload } from "../lib/upload";
 import { PROJECT_TEMPLATES, getTemplate } from "../lib/projectTemplates";
 import { maybeAutofillCounterparty } from "../lib/counterpartyExtraction";
+import { maybeExtractContractFacts } from "../lib/contractFacts";
 
 export const projectsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -197,6 +198,37 @@ projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
     a.counterparty.localeCompare(b.counterparty),
   );
   res.json(groups);
+});
+
+// GET /projects/:projectId/facts
+// Returns the contract_facts rows for this project, newest first. Lets the
+// project page render a "Key terms" panel and a lifecycle timeline.
+projectsRouter.get("/:projectId/facts", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string;
+  const { projectId } = req.params;
+  const db = createServerSupabase();
+  const { data: project } = await db
+    .from("projects")
+    .select("user_id, shared_with")
+    .eq("id", projectId)
+    .single();
+  if (!project) return void res.status(404).json({ detail: "Project not found" });
+  const canAccess =
+    project.user_id === userId ||
+    (userEmail &&
+      Array.isArray(project.shared_with) &&
+      project.shared_with.includes(userEmail));
+  if (!canAccess)
+    return void res.status(404).json({ detail: "Project not found" });
+
+  const { data, error } = await db
+    .from("contract_facts")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("extracted_at", { ascending: false });
+  if (error) return void res.status(500).json({ detail: error.message });
+  res.json(data ?? []);
 });
 
 // GET /projects/:projectId
@@ -843,6 +875,13 @@ export async function handleDocumentUpload(
         userId,
       });
     }
+    // Always extract structured contract facts on upload (regardless of
+    // template). Builds the lifecycle dataset.
+    void maybeExtractContractFacts({
+      projectId,
+      documentId: doc.id as string,
+      userId,
+    });
     return void res.status(201).json(responseDoc);
   } catch (e) {
     await db.from("documents").update({ status: "error" }).eq("id", doc.id);
