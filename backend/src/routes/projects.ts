@@ -120,6 +120,74 @@ projectsRouter.get("/templates", requireAuth, async (_req, res) => {
   res.json(PROJECT_TEMPLATES);
 });
 
+// GET /projects/counterparties/:name/timeline
+// Aggregates everything for a single counterparty: their projects, the
+// executed documents in each, and the contract_facts rows tied to those
+// docs — all ordered chronologically. Powers the per-counterparty detail
+// page so you can see "Acme Inc." across every contract you have with
+// them as one timeline.
+projectsRouter.get(
+  "/counterparties/:name/timeline",
+  requireAuth,
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const userEmail = res.locals.userEmail as string;
+    const cpName = decodeURIComponent(req.params.name).trim();
+    if (!cpName)
+      return void res.status(400).json({ detail: "name required" });
+    const key = cpName.toLowerCase();
+
+    const db = createServerSupabase();
+    const { data: allProjects } = await db
+      .from("projects")
+      .select(
+        "id, name, counterparty, parent_counterparty, role, template, created_at, updated_at, user_id, shared_with",
+      );
+    const projects = (allProjects ?? []).filter((p) => {
+      const cp = (p.counterparty as string | null)?.trim().toLowerCase();
+      if (cp !== key) return false;
+      if (p.user_id === userId) return true;
+      if (
+        userEmail &&
+        Array.isArray(p.shared_with) &&
+        p.shared_with.includes(userEmail)
+      )
+        return true;
+      return false;
+    });
+    const projectIds = projects.map((p) => p.id as string);
+    if (projectIds.length === 0)
+      return void res.json({
+        counterparty: cpName,
+        projects: [],
+        documents: [],
+        facts: [],
+      });
+
+    const [{ data: documents }, { data: facts }] = await Promise.all([
+      db
+        .from("documents")
+        .select(
+          "id, project_id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_lifecycle_hint, intake_confidence",
+        )
+        .in("project_id", projectIds)
+        .order("created_at", { ascending: true }),
+      db
+        .from("contract_facts")
+        .select("*")
+        .in("project_id", projectIds)
+        .order("extracted_at", { ascending: true }),
+    ]);
+
+    res.json({
+      counterparty: cpName,
+      projects,
+      documents: documents ?? [],
+      facts: facts ?? [],
+    });
+  },
+);
+
 // POST /projects/counterparties/merge
 // Body: { from: string, to: string, role?: string }
 // Reassigns every project the caller can write where counterparty == from

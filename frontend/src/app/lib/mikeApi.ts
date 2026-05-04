@@ -140,6 +140,41 @@ export async function listCounterparties(
     return apiRequest(`/projects/counterparties?role=${encodeURIComponent(role)}`);
 }
 
+export interface CounterpartyTimeline {
+    counterparty: string;
+    projects: {
+        id: string;
+        name: string;
+        counterparty: string | null;
+        parent_counterparty: string | null;
+        role: "buyer" | "seller" | "mutual" | null;
+        template: string | null;
+        created_at: string;
+        updated_at: string;
+    }[];
+    documents: {
+        id: string;
+        project_id: string;
+        filename: string;
+        file_type: string;
+        page_count: number | null;
+        created_at: string;
+        intake_role: "buyer" | "seller" | "mutual" | null;
+        intake_status: "draft" | "execution" | "unknown" | null;
+        intake_lifecycle_hint: string | null;
+        intake_confidence: number | null;
+    }[];
+    facts: ContractFactsRow[];
+}
+
+export async function getCounterpartyTimeline(
+    name: string,
+): Promise<CounterpartyTimeline> {
+    return apiRequest(
+        `/projects/counterparties/${encodeURIComponent(name)}/timeline`,
+    );
+}
+
 export async function mergeCounterparty(
     from: string,
     to: string,

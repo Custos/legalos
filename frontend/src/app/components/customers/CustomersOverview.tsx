@@ -153,9 +153,24 @@ export function CustomersOverview() {
                                 <summary className="cursor-pointer flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
                                     <ChevronRight className="h-3.5 w-3.5 text-gray-400 group-open:rotate-90 transition-transform" />
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium text-gray-900 truncate">
-                                            {g.counterparty}
-                                        </div>
+                                        {g.counterparty === "(Unassigned)" ? (
+                                            <div className="text-sm font-medium text-gray-900 truncate">
+                                                {g.counterparty}
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    router.push(
+                                                        `/customers/${encodeURIComponent(g.counterparty)}`,
+                                                    );
+                                                }}
+                                                className="text-sm font-medium text-gray-900 truncate hover:text-blue-600 transition-colors text-left w-full"
+                                            >
+                                                {g.counterparty}
+                                            </button>
+                                        )}
                                         {g.parent_counterparty && (
                                             <div className="text-[11px] text-gray-500 truncate">
                                                 ↳ {g.parent_counterparty}
