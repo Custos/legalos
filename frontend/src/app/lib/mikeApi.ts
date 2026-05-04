@@ -578,12 +578,52 @@ export async function deleteTabularReview(reviewId: string): Promise<void> {
 
 export async function streamTabularGeneration(
     reviewId: string,
+    documentIds?: string[],
 ): Promise<Response> {
     const authHeaders = await getAuthHeader();
     return fetch(`${API_BASE}/tabular-review/${reviewId}/generate`, {
         method: "POST",
-        headers: { ...authHeaders },
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: documentIds && documentIds.length > 0
+            ? JSON.stringify({ document_ids: documentIds })
+            : "{}",
     });
+}
+
+export interface CellVersion {
+    id: string;
+    cell_id: string;
+    review_id: string;
+    document_id: string;
+    column_index: number;
+    content: string | null;
+    status: string | null;
+    citations: unknown;
+    model: string | null;
+    system_prompt: string | null;
+    column_prompt: string | null;
+    created_at: string;
+}
+
+export async function getCellVersions(
+    reviewId: string,
+    cellId: string,
+): Promise<{
+    current: {
+        id: string;
+        content: string | null;
+        status: string | null;
+        citations: unknown;
+        model: string | null;
+        system_prompt: string | null;
+        column_prompt: string | null;
+        updated_at: string;
+    };
+    versions: CellVersion[];
+}> {
+    return apiRequest(
+        `/tabular-review/${reviewId}/cells/${cellId}/versions`,
+    );
 }
 
 export async function streamTabularChat(

@@ -238,11 +238,13 @@ export function TRView({ reviewId, projectId }: Props) {
         }
     }
 
-    async function handleGenerate() {
+    async function handleGenerate(onlySelected = false) {
         if (!review || generating) return;
 
         // If columns changed since last save, update the review first
         if (columns.length === 0) return;
+        const targetDocIds = onlySelected ? selectedDocIds : null;
+        if (onlySelected && targetDocIds && targetDocIds.length === 0) return;
 
         if (!isModelAvailable(tabularModel, apiKeys)) {
             setApiKeyModalProvider(getModelProvider(tabularModel));
@@ -251,16 +253,25 @@ export function TRView({ reviewId, projectId }: Props) {
 
         setGenerating(true);
 
-        // Optimistically set empty/pending/error cells to generating (skip done cells)
+        // Optimistically set empty/pending/error cells to generating. When the
+        // user explicitly selected rows, force-rerun every cell on those rows.
+        const targetSet = targetDocIds ? new Set(targetDocIds) : null;
+        const targetDocs = targetSet
+            ? documents.filter((d) => targetSet.has(d.id))
+            : documents;
         setCells((prev) =>
-            documents.flatMap((doc) =>
+            targetDocs.flatMap((doc) =>
                 columns.map((col) => {
                     const existing = prev.find(
                         (c) =>
                             c.document_id === doc.id &&
                             c.column_index === col.index,
                     );
-                    if (existing?.status === "done" && existing?.content) {
+                    if (
+                        !targetSet &&
+                        existing?.status === "done" &&
+                        existing?.content
+                    ) {
                         return existing;
                     }
                     return existing
@@ -283,7 +294,10 @@ export function TRView({ reviewId, projectId }: Props) {
         );
 
         try {
-            const response = await streamTabularGeneration(reviewId);
+            const response = await streamTabularGeneration(
+                reviewId,
+                targetDocIds ?? undefined,
+            );
             if (!response.body) throw new Error("No body");
 
             const reader = response.body.getReader();
@@ -577,8 +591,33 @@ export function TRView({ reviewId, projectId }: Props) {
                                 <Download className="h-4 w-4" />
                                 Export
                             </button>
+                            {selectedDocIds.length > 0 && (
+                                <button
+                                    onClick={() => handleGenerate(true)}
+                                    disabled={
+                                        generating ||
+                                        columns.length === 0 ||
+                                        savingColumnsConfig
+                                    }
+                                    title="Re-run selected rows (archives prior values)"
+                                    className={`flex h-8 items-center justify-center gap-1.5 px-3 text-sm transition-colors ${
+                                        generating ||
+                                        columns.length === 0 ||
+                                        savingColumnsConfig
+                                            ? "text-gray-300 cursor-default"
+                                            : "text-gray-700 hover:text-gray-900 cursor-pointer"
+                                    }`}
+                                >
+                                    {generating ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Play className="h-4 w-4" />
+                                    )}
+                                    Run selected ({selectedDocIds.length})
+                                </button>
+                            )}
                             <button
-                                onClick={handleGenerate}
+                                onClick={() => handleGenerate(false)}
                                 disabled={
                                     generating ||
                                     columns.length === 0 ||

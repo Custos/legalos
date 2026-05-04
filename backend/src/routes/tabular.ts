@@ -18,6 +18,50 @@ import {
     listAccessibleProjectIds,
 } from "../lib/access";
 
+// System prompts for cell extraction. Exposed at module scope so the cell
+// archive metadata can record which system prompt produced a given result.
+const SINGLE_CELL_SYSTEM = `You are a legal document analyst. Return ONLY valid JSON:
+{"summary": string, "flag": "green"|"grey"|"yellow"|"red", "reasoning": string}
+
+The "summary" and "reasoning" field values may use markdown formatting (bullets, bold, italics, etc.) — the values are still plain JSON strings (escape newlines as \\n), but the text inside will be rendered as markdown in the UI.
+
+The "summary" field must contain only the extracted value with inline citations — no explanation or reasoning. Every factual claim in "summary" must be followed immediately by a citation in the format [[page:N||quote:exact quoted text]], where N is the page number and the quote is a short verbatim excerpt (≤ 25 words). The quote must be narrowly scoped to the specific claim it supports — extract only the exact words that support that statement, not the surrounding sentence or paragraph. Do not have multiple claims share the same long quote; if two different statements need different evidence, give each its own short, narrowly-scoped quote. All reasoning and explanation belongs in "reasoning" only, which may also contain citations.`;
+
+const BULK_CELL_SYSTEM = `You are a legal document analyst. Extract information for each column listed below.
+
+For each column, output exactly one minified JSON object on its own line (no line breaks inside the JSON), then a newline. Process columns in order and output each result as soon as you finish it.
+
+Line format:
+{"column_index": <N>, "summary": <string>, "flag": <"green"|"grey"|"yellow"|"red">, "reasoning": <string>}
+
+Rules:
+- "summary": the extracted value with inline citations [[page:N||quote:verbatim excerpt ≤25 words]] after every factual claim. No explanation or reasoning here. Quotes must be narrowly scoped to the specific claim — extract only the exact supporting words, not the full surrounding sentence. Do not reuse one long quote across multiple statements; give each claim its own short, precise quote.
+- "flag": green = standard/favorable, yellow = needs attention, red = problematic/unfavorable, grey = neutral/not found
+- "reasoning": brief explanation of the extraction
+- The "summary" and "reasoning" string VALUES may use markdown (bullets, bold, italics, etc.) — escape newlines as \\n inside the JSON string. This markdown is rendered in the UI.
+- Output ONLY the JSON lines themselves. Do NOT wrap the response in markdown code fences (e.g. \`\`\`json), and do not add any preamble or summary.`;
+
+// Insert a snapshot of a cell's prior state into tabular_cell_versions before
+// it gets overwritten. Skips if the cell has no content yet.
+async function archiveCellIfHasContent(
+    db: ReturnType<typeof createServerSupabase>,
+    cell: Record<string, unknown>,
+): Promise<void> {
+    if (!cell?.content) return;
+    await db.from("tabular_cell_versions").insert({
+        cell_id: cell.id,
+        review_id: cell.review_id,
+        document_id: cell.document_id,
+        column_index: cell.column_index,
+        content: cell.content,
+        status: cell.status,
+        citations: cell.citations ?? null,
+        model: cell.model ?? null,
+        system_prompt: cell.system_prompt ?? null,
+        column_prompt: cell.column_prompt ?? null,
+    });
+}
+
 function formatPromptSuffix(format?: string, tags?: string[]): string {
     switch (format) {
         case "bulleted_list":
@@ -615,6 +659,55 @@ tabularRouter.post("/:reviewId/clear-cells", requireAuth, async (req, res) => {
     res.status(204).send();
 });
 
+// GET /tabular-review/:reviewId/cells/:cellId/versions
+// Returns the archived prior states of a cell, newest first. Each entry
+// records the content, model, and prompts that produced it — the basis for
+// diff and model-comparison views.
+tabularRouter.get(
+    "/:reviewId/cells/:cellId/versions",
+    requireAuth,
+    async (req, res) => {
+        const userId = res.locals.userId as string;
+        const userEmail = res.locals.userEmail as string | undefined;
+        const { reviewId, cellId } = req.params;
+
+        const db = createServerSupabase();
+        const { data: review, error: reviewError } = await db
+            .from("tabular_reviews")
+            .select("*")
+            .eq("id", reviewId)
+            .single();
+        if (reviewError || !review)
+            return void res.status(404).json({ detail: "Review not found" });
+        const access = await ensureReviewAccess(review, userId, userEmail, db);
+        if (!access.ok)
+            return void res.status(404).json({ detail: "Review not found" });
+
+        const { data: current } = await db
+            .from("tabular_cells")
+            .select(
+                "id, content, status, citations, model, system_prompt, column_prompt, updated_at",
+            )
+            .eq("id", cellId)
+            .eq("review_id", reviewId)
+            .single();
+        if (!current)
+            return void res.status(404).json({ detail: "Cell not found" });
+
+        const { data: versions, error: versionsError } = await db
+            .from("tabular_cell_versions")
+            .select("*")
+            .eq("cell_id", cellId)
+            .order("created_at", { ascending: false });
+        if (versionsError)
+            return void res
+                .status(500)
+                .json({ detail: versionsError.message });
+
+        res.json({ current, versions: versions ?? [] });
+    },
+);
+
 // POST /tabular-review/:reviewId/regenerate-cell
 tabularRouter.post(
     "/:reviewId/regenerate-cell",
@@ -666,6 +759,14 @@ tabularRouter.post(
             return void res.status(404).json({ detail: "Document not found" });
         const docActive = await loadActiveVersion(document_id, db);
 
+        const { data: existingCell } = await db
+            .from("tabular_cells")
+            .select("*")
+            .eq("review_id", reviewId)
+            .eq("document_id", document_id)
+            .eq("column_index", column_index)
+            .single();
+        if (existingCell) await archiveCellIfHasContent(db, existingCell);
         await db
             .from("tabular_cells")
             .update({ status: "generating", content: null })
@@ -717,7 +818,14 @@ tabularRouter.post(
 
         await db
             .from("tabular_cells")
-            .update({ content: JSON.stringify(result), status: "done" })
+            .update({
+                content: JSON.stringify(result),
+                status: "done",
+                model: tabular_model,
+                system_prompt: SINGLE_CELL_SYSTEM,
+                column_prompt: column.prompt,
+                updated_at: new Date().toISOString(),
+            })
             .eq("review_id", reviewId)
             .eq("document_id", document_id)
             .eq("column_index", column_index);
@@ -731,6 +839,14 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
     const userId = res.locals.userId as string;
     const userEmail = res.locals.userEmail as string | undefined;
     const { reviewId } = req.params;
+    // Optional: limit run to specific documents (selected rows). When provided,
+    // those rows are *forced* to re-run regardless of current cell status, and
+    // their prior content is archived to tabular_cell_versions.
+    const requestedDocIds = Array.isArray(
+        (req.body as { document_ids?: unknown })?.document_ids,
+    )
+        ? ((req.body as { document_ids: string[] }).document_ids ?? [])
+        : null;
     const db = createServerSupabase();
 
     const { data: review, error: reviewError } = await db
@@ -778,6 +894,11 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
             .order("created_at", { ascending: true });
         docs = data ?? [];
     }
+    if (requestedDocIds && requestedDocIds.length > 0) {
+        const allowed = new Set(requestedDocIds);
+        docs = docs.filter((d) => allowed.has(d.id as string));
+    }
+    const forceRerun = !!(requestedDocIds && requestedDocIds.length > 0);
 
     const { tabular_model, api_keys } = await getUserModelSettings(userId, db);
 
@@ -814,20 +935,26 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                     }
                 }
 
-                // Filter to only columns that need processing
+                // Filter to only columns that need processing. When the
+                // caller explicitly passed document_ids (selected rows), we
+                // re-run every column for those docs regardless of status.
                 const columnsToProcess = columns.filter((col) => {
+                    if (forceRerun) return true;
                     const cell = cellMap.get(`${docId}:${col.index}`);
                     return !(cell?.status === "done" && cell?.content);
                 });
                 if (columnsToProcess.length === 0) return;
 
-                // Mark all as generating upfront
+                // Mark all as generating upfront. Archive prior content
+                // before clearing so versions/diffs/model comparison are
+                // available later.
                 for (const col of columnsToProcess) {
                     write(
                         `data: ${JSON.stringify({ type: "cell_update", document_id: docId, column_index: col.index, content: null, status: "generating" })}\n\n`,
                     );
                     const existingCell = cellMap.get(`${docId}:${col.index}`);
                     if (existingCell) {
+                        await archiveCellIfHasContent(db, existingCell);
                         await db
                             .from("tabular_cells")
                             .update({ status: "generating", content: null })
@@ -852,11 +979,18 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
                         columnsToProcess,
                         async (columnIndex, result) => {
                             receivedColumns.add(columnIndex);
+                            const colCfg = columnsToProcess.find(
+                                (c) => c.index === columnIndex,
+                            );
                             await db
                                 .from("tabular_cells")
                                 .update({
                                     content: JSON.stringify(result),
                                     status: "done",
+                                    model: tabular_model,
+                                    system_prompt: BULK_CELL_SYSTEM,
+                                    column_prompt: colCfg?.prompt ?? null,
+                                    updated_at: new Date().toISOString(),
                                 })
                                 .eq("review_id", reviewId)
                                 .eq("document_id", docId)
