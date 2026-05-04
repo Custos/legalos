@@ -269,13 +269,11 @@ export function ProjectsOverview() {
                     <div className={`sticky left-8 z-[60] ${NAME_COL_W} bg-white pl-2 text-left`}>
                         Name
                     </div>
-                    <div className="ml-auto w-32 shrink-0 text-left">CM</div>
-                    <div className="w-24 shrink-0 text-left">Files</div>
-                    <div className="w-24 shrink-0 text-left">Chats</div>
-                    <div className="w-36 shrink-0 text-left">
-                        Tabular Reviews
-                    </div>
-                    <div className="w-32 shrink-0 text-left">Created</div>
+                    <div className="ml-auto w-24 shrink-0 text-left">Type</div>
+                    <div className="w-56 shrink-0 text-left">Counterparty</div>
+                    <div className="w-20 shrink-0 text-left">Files</div>
+                    <div className="w-32 shrink-0 text-left">Reviews</div>
+                    <div className="w-32 shrink-0 text-left">Updated</div>
                     <div className="w-8 shrink-0" />
                 </div>
 
@@ -290,17 +288,17 @@ export function ProjectsOverview() {
                                 <div className="flex-1 min-w-0 pl-3 pr-4">
                                     <div className="h-3.5 w-48 rounded bg-gray-100 animate-pulse" />
                                 </div>
+                                <div className="w-24 shrink-0">
+                                    <div className="h-3 w-16 rounded bg-gray-100 animate-pulse" />
+                                </div>
+                                <div className="w-56 shrink-0">
+                                    <div className="h-3 w-32 rounded bg-gray-100 animate-pulse" />
+                                </div>
+                                <div className="w-20 shrink-0">
+                                    <div className="h-3 w-6 rounded bg-gray-100 animate-pulse" />
+                                </div>
                                 <div className="w-32 shrink-0">
-                                    <div className="h-3 w-20 rounded bg-gray-100 animate-pulse" />
-                                </div>
-                                <div className="w-24 shrink-0">
-                                    <div className="h-3 w-8 rounded bg-gray-100 animate-pulse" />
-                                </div>
-                                <div className="w-24 shrink-0">
-                                    <div className="h-3 w-8 rounded bg-gray-100 animate-pulse" />
-                                </div>
-                                <div className="w-36 shrink-0">
-                                    <div className="h-3 w-8 rounded bg-gray-100 animate-pulse" />
+                                    <div className="h-3 w-6 rounded bg-gray-100 animate-pulse" />
                                 </div>
                                 <div className="w-32 shrink-0">
                                     <div className="h-3 w-20 rounded bg-gray-100 animate-pulse" />
@@ -394,48 +392,39 @@ export function ProjectsOverview() {
                                     )}
                                 </div>
 
-                                <div
-                                    className="ml-auto w-32 shrink-0 text-sm text-gray-500 truncate"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    {cmEditingId === project.id ? (
-                                        <input
-                                            autoFocus
-                                            value={cmValue}
-                                            onChange={(e) =>
-                                                setCmValue(e.target.value)
-                                            }
-                                            onKeyDown={(e) => {
-                                                if (e.key === "Enter")
-                                                    handleCmSubmit(project.id);
-                                                if (e.key === "Escape")
-                                                    setCmEditingId(null);
-                                            }}
-                                            onBlur={() =>
-                                                handleCmSubmit(project.id)
-                                            }
-                                            placeholder="CM #"
-                                            className="w-full text-sm text-gray-800 bg-transparent outline-none"
-                                        />
+                                <div className="ml-auto w-24 shrink-0 text-xs text-gray-500 truncate">
+                                    {project.template ? (
+                                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 capitalize">
+                                            {project.template}
+                                        </span>
                                     ) : (
-                                        (project.cm_number ?? (
-                                            <span className="text-gray-300">
-                                                —
-                                            </span>
-                                        ))
+                                        <span className="text-gray-300">—</span>
                                     )}
                                 </div>
-                                <div className="w-24 shrink-0 text-sm text-gray-500 truncate">
+                                <div className="w-56 shrink-0 text-sm text-gray-700 truncate">
+                                    {project.counterparty ? (
+                                        <>
+                                            <span className="truncate">
+                                                {project.counterparty}
+                                            </span>
+                                            {project.parent_counterparty && (
+                                                <span className="ml-1 text-[11px] text-gray-400">
+                                                    ↳ {project.parent_counterparty}
+                                                </span>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <span className="text-gray-300">—</span>
+                                    )}
+                                </div>
+                                <div className="w-20 shrink-0 text-sm text-gray-500 truncate">
                                     {project.document_count ?? 0}
                                 </div>
-                                <div className="w-24 shrink-0 text-sm text-gray-500 truncate">
-                                    {project.chat_count ?? 0}
-                                </div>
-                                <div className="w-36 shrink-0 text-sm text-gray-500 truncate">
+                                <div className="w-32 shrink-0 text-sm text-gray-500 truncate">
                                     {project.review_count ?? 0}
                                 </div>
                                 <div className="w-32 shrink-0 text-sm text-gray-500 truncate">
-                                    {formatDate(project.created_at)}
+                                    {formatDate(project.updated_at)}
                                 </div>
 
                                 <div

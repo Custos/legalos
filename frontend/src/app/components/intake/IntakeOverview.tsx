@@ -209,9 +209,16 @@ function IntakeRow({
                     : doc.intake_role === "seller"
                       ? "customer"
                       : "internal";
-            const name =
-                doc.intake_counterparty ||
-                doc.filename.replace(/\.[a-z0-9]{2,5}$/i, "");
+            // Prefer counterparty, append a lifecycle hint to disambiguate
+            // multiple contracts with the same counterparty (e.g. "Adobe Inc.
+            // — SOW", "Adobe Inc. — Renewal"). Fall back to filename.
+            const cp = doc.intake_counterparty?.trim();
+            const hint = doc.intake_lifecycle_hint?.trim();
+            const name = cp
+                ? hint
+                    ? `${cp} — ${hint.toUpperCase()}`
+                    : cp
+                : doc.filename.replace(/\.[a-z0-9]{2,5}$/i, "");
             const r = await assignDocumentToProject(doc.id, {
                 new_project: {
                     name,
@@ -304,6 +311,34 @@ function IntakeRow({
                     </div>
                 )}
                 <div className="flex items-center gap-1.5">
+                    {projects.length > 0 && (
+                        <select
+                            disabled={busy || analyzing}
+                            defaultValue=""
+                            onChange={(e) => {
+                                const v = e.target.value;
+                                e.target.value = "";
+                                if (v) handleAssignExisting(v);
+                            }}
+                            className="text-xs rounded-full border border-gray-200 px-2 py-1 bg-white text-gray-600 disabled:opacity-50"
+                        >
+                            <option value="">Assign to…</option>
+                            {projects
+                                .slice()
+                                .sort((a, b) =>
+                                    (a.counterparty ?? a.name).localeCompare(
+                                        b.counterparty ?? b.name,
+                                    ),
+                                )
+                                .map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.counterparty
+                                            ? `${p.counterparty} (${p.name})`
+                                            : p.name}
+                                    </option>
+                                ))}
+                        </select>
+                    )}
                     <button
                         disabled={busy || analyzing}
                         onClick={handleCreateNew}
