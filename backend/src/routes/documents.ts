@@ -23,6 +23,7 @@ import {
 } from "../lib/documentVersions";
 import { ensureDocAccess } from "../lib/access";
 import { singleFileUpload } from "../lib/upload";
+import { maybeExtractContractFacts } from "../lib/contractFacts";
 
 export const documentsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -532,6 +533,14 @@ documentsRouter.post(
       .from("documents")
       .update(documentsUpdate)
       .eq("id", documentId);
+
+    // Re-extract contract facts on each new version so the lifecycle
+    // table picks up changes between renewals/amendments.
+    void maybeExtractContractFacts({
+      projectId: (doc.project_id as string | null) ?? null,
+      documentId,
+      userId,
+    });
 
     res.status(201).json(versionRow);
   },
