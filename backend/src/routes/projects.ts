@@ -143,9 +143,7 @@ projectsRouter.get(
       .select(
         "id, name, counterparty, parent_counterparty, role, template, created_at, updated_at, user_id, shared_with",
       );
-    const projects = (allProjects ?? []).filter((p) => {
-      const cp = (p.counterparty as string | null)?.trim().toLowerCase();
-      if (cp !== key) return false;
+    const accessibleProjects = (allProjects ?? []).filter((p) => {
       if (p.user_id === userId) return true;
       if (
         userEmail &&
@@ -154,6 +152,29 @@ projectsRouter.get(
       )
         return true;
       return false;
+    });
+    // Find every accessible project that "involves" this counterparty —
+    // either projects.counterparty matches, or any document in the project
+    // has intake_counterparty matching. Lets multi-counterparty projects
+    // ("Customer Contracts" bucket) appear under each customer.
+    const accessibleProjectIds = accessibleProjects.map(
+      (p) => p.id as string,
+    );
+    const { data: matchingDocs } =
+      accessibleProjectIds.length > 0
+        ? await db
+            .from("documents")
+            .select("project_id, intake_counterparty")
+            .in("project_id", accessibleProjectIds)
+            .ilike("intake_counterparty", cpName)
+        : { data: [] as { project_id: string }[] };
+    const projectIdsViaDocs = new Set(
+      (matchingDocs ?? []).map((d) => d.project_id as string),
+    );
+    const projects = accessibleProjects.filter((p) => {
+      const cp = (p.counterparty as string | null)?.trim().toLowerCase();
+      if (cp === key) return true;
+      return projectIdsViaDocs.has(p.id as string);
     });
     const projectIds = projects.map((p) => p.id as string);
 
@@ -167,6 +188,16 @@ projectsRouter.get(
       .is("project_id", null)
       .ilike("intake_counterparty", cpName);
 
+    // Only include the project documents whose counterparty IS this one,
+    // OR whose project's primary counterparty IS this one (in which case
+    // include all docs in that project). Avoids "Customer Contracts"
+    // bucket leaking unrelated counterparties' docs onto this page.
+    const primaryProjectIds = projects
+      .filter(
+        (p) =>
+          (p.counterparty as string | null)?.trim().toLowerCase() === key,
+      )
+      .map((p) => p.id as string);
     const projectDocsPromise =
       projectIds.length > 0
         ? db
@@ -175,6 +206,13 @@ projectsRouter.get(
               "id, project_id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_lifecycle_hint, intake_confidence",
             )
             .in("project_id", projectIds)
+            .or(
+              `intake_counterparty.ilike.${cpName}${
+                primaryProjectIds.length > 0
+                  ? `,project_id.in.(${primaryProjectIds.join(",")})`
+                  : ""
+              }`,
+            )
             .order("created_at", { ascending: true })
         : Promise.resolve({ data: [] as unknown[] });
     const factsPromise =
@@ -262,14 +300,15 @@ projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
   const role = (req.query.role as string | undefined) ?? "seller";
   const db = createServerSupabase();
 
-  let query = db
+  // Don't filter projects by role at the SQL layer — a "Customer Contracts"
+  // bucket project may have role=null but contain documents with
+  // intake_role=seller, and we want it to surface under /customers. The
+  // filtering happens per-document below.
+  const { data, error } = await db
     .from("projects")
     .select(
       "id, name, counterparty, parent_counterparty, template, role, updated_at, created_at, user_id, shared_with",
     );
-  if (role !== "all") query = query.eq("role", role);
-
-  const { data, error } = await query;
   if (error) return void res.status(500).json({ detail: error.message });
 
   const accessible = (data ?? []).filter((p) => {
@@ -312,19 +351,79 @@ projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
     byCp.set(key, fresh);
     return fresh;
   }
+  // Pull every document in any accessible project so each project can be
+  // credited to all the counterparties present across its docs (a project
+  // can be a free-form bucket — e.g. "Customer Contracts" — covering many
+  // counterparties).
+  const accessibleProjectIds = accessible.map((p) => p.id as string);
+  type DocRow = {
+    project_id: string | null;
+    intake_counterparty: string | null;
+    intake_parent_counterparty: string | null;
+    intake_role: string | null;
+    created_at: string;
+    updated_at: string | null;
+  };
+  let projectDocs: DocRow[] = [];
+  if (accessibleProjectIds.length > 0) {
+    let pdq = db
+      .from("documents")
+      .select(
+        "project_id, intake_counterparty, intake_parent_counterparty, intake_role, created_at, updated_at",
+      )
+      .in("project_id", accessibleProjectIds)
+      .not("intake_counterparty", "is", null);
+    if (role !== "all") pdq = pdq.eq("intake_role", role);
+    const { data: pd } = await pdq;
+    projectDocs = (pd as DocRow[] | null) ?? [];
+  }
+
   for (const p of accessible) {
-    const g = ensure(
-      p.counterparty as string | null,
-      (p.parent_counterparty as string | null) ?? null,
-    );
-    g.project_count += 1;
     const updatedAt = (p.updated_at as string) ?? (p.created_at as string);
-    g.projects.push({
-      id: p.id as string,
-      name: p.name as string,
-      updated_at: updatedAt,
-    });
-    if (updatedAt > g.last_activity) g.last_activity = updatedAt;
+    // Counterparty membership for this project: the explicit primary
+    // counterparty on the project (if set) plus every distinct
+    // intake_counterparty across its docs.
+    const cps = new Set<string>();
+    const parents = new Map<string, string>();
+    if ((p.counterparty as string | null)?.trim()) {
+      const key = (p.counterparty as string).trim();
+      cps.add(key);
+      if ((p.parent_counterparty as string | null)?.trim())
+        parents.set(key.toLowerCase(), p.parent_counterparty as string);
+    }
+    for (const d of projectDocs) {
+      if (d.project_id !== p.id) continue;
+      const cp = d.intake_counterparty?.trim();
+      if (!cp) continue;
+      cps.add(cp);
+      if (d.intake_parent_counterparty?.trim())
+        parents.set(cp.toLowerCase(), d.intake_parent_counterparty);
+    }
+    if (cps.size === 0) {
+      // Untagged project — still surface under "(Unassigned)" but only
+      // when the role filter allows it (we don't have a role for unset
+      // projects so include in "all" only).
+      if (role !== "all") continue;
+      const g = ensure(null, null);
+      g.project_count += 1;
+      g.projects.push({
+        id: p.id as string,
+        name: p.name as string,
+        updated_at: updatedAt,
+      });
+      if (updatedAt > g.last_activity) g.last_activity = updatedAt;
+      continue;
+    }
+    for (const cp of cps) {
+      const g = ensure(cp, parents.get(cp.toLowerCase()) ?? null);
+      g.project_count += 1;
+      g.projects.push({
+        id: p.id as string,
+        name: p.name as string,
+        updated_at: updatedAt,
+      });
+      if (updatedAt > g.last_activity) g.last_activity = updatedAt;
+    }
   }
 
   // Pull in the user's standalone documents (project_id IS NULL) that have
