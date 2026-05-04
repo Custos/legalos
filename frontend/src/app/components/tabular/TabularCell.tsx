@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertCircle, Expand } from "lucide-react";
+import { AlertCircle, Expand, History } from "lucide-react";
 import type { ColumnConfig, TabularCell as TCell } from "../shared/types";
 import { preprocessCitations, type ParsedCitation } from "./citation-utils";
 import { getPillClass } from "./pillUtils";
@@ -13,6 +13,7 @@ interface Props {
     column?: ColumnConfig;
     onExpand: () => void;
     onCitationClick?: (page: number, quote: string) => void;
+    onShowHistory?: () => void;
 }
 
 const FLAG_STYLES = {
@@ -151,6 +152,7 @@ export function TabularCell({
     column,
     onExpand,
     onCitationClick,
+    onShowHistory,
 }: Props) {
     const [inlineExpanded, setInlineExpanded] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -252,7 +254,20 @@ export function TabularCell({
                             onExpand={handleSeeDetails}
                         />
                     </div>
-                    <div className="px-2 py-1.5 flex items-center justify-end">
+                    <div className="px-2 py-1.5 flex items-center justify-end gap-3">
+                        {onShowHistory && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInlineExpanded(false);
+                                    onShowHistory();
+                                }}
+                                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                            >
+                                <History className="h-3 w-3" />
+                                History
+                            </button>
+                        )}
                         <button
                             onClick={handleSeeDetails}
                             className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"

@@ -34,6 +34,7 @@ interface Props {
     onSelectionChange: (ids: string[]) => void;
     onExpand: (cell: TabularCell) => void;
     onCitationClick: (cell: TabularCell, page: number, quote: string) => void;
+    onShowHistory?: (cell: TabularCell) => void;
     onUpdateColumn: (col: ColumnConfig) => void;
     onDeleteColumn: (colIndex: number) => void;
     onAddColumn: () => void;
@@ -53,6 +54,7 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
         onSelectionChange,
         onExpand,
         onCitationClick,
+        onShowHistory,
         onUpdateColumn,
         onDeleteColumn,
         onAddColumn,
@@ -311,6 +313,11 @@ export const TRTable = forwardRef<TRTableHandle, Props>(function TRTable(
                                                     page,
                                                     quote,
                                                 )
+                                            }
+                                            onShowHistory={
+                                                onShowHistory
+                                                    ? () => onShowHistory(cell)
+                                                    : undefined
                                             }
                                         />
                                     )}

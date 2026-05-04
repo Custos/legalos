@@ -36,6 +36,7 @@ import {
     type ModelProvider,
 } from "@/app/lib/modelAvailability";
 import { ModelToggle } from "../assistant/ModelToggle";
+import { CellHistoryModal } from "./CellHistoryModal";
 import { TRSidePanel } from "./TRSidePanel";
 import { TRTable } from "./TRTable";
 import type { TRTableHandle } from "./TRTable";
@@ -69,6 +70,7 @@ export function TRView({ reviewId, projectId }: Props) {
         { quote: string; page: number } | undefined
     >(undefined);
     const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+    const [historyCellId, setHistoryCellId] = useState<string | null>(null);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [search, setSearch] = useState("");
     const searchParams = useSearchParams();
@@ -756,6 +758,7 @@ export function TRView({ reviewId, projectId }: Props) {
                             setExpandedCell(cell);
                             setExpandedCellCitation({ quote, page });
                         }}
+                        onShowHistory={(cell) => setHistoryCellId(cell.id)}
                         onUpdateColumn={handleUpdateColumn}
                         onDeleteColumn={handleDeleteColumn}
                         onAddColumn={() => setAddColOpen(true)}
@@ -894,6 +897,13 @@ export function TRView({ reviewId, projectId }: Props) {
                 open={apiKeyModalProvider !== null}
                 provider={apiKeyModalProvider}
                 onClose={() => setApiKeyModalProvider(null)}
+            />
+
+            <CellHistoryModal
+                open={historyCellId !== null}
+                onClose={() => setHistoryCellId(null)}
+                reviewId={reviewId}
+                cellId={historyCellId}
             />
         </div>
     );
