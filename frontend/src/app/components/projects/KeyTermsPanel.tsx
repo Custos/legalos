@@ -81,12 +81,27 @@ export function KeyTermsPanel({ projectId, filenameByDocId }: Props) {
         );
     }
 
-    // Diff helpers across rows of the same document (renewals show changes).
-    const valueByDoc = new Map<string, number | null>();
-    for (const r of [...rows].sort(
-        (a, b) => a.extracted_at.localeCompare(b.extracted_at),
-    )) {
-        valueByDoc.set(r.document_id, r.total_value_minor);
+    // Build a chronological view per project so we can render deltas
+    // between consecutive contract versions ("renewed at $120k, +20% YoY").
+    const chronological = [...rows].sort((a, b) =>
+        a.extracted_at.localeCompare(b.extracted_at),
+    );
+    const priorValueByRow = new Map<string, number | null>();
+    let lastValue: number | null = null;
+    for (const r of chronological) {
+        priorValueByRow.set(r.id, lastValue);
+        if (r.total_value_minor != null) lastValue = r.total_value_minor;
+    }
+
+    function renderDelta(
+        current: number | null,
+        prior: number | null,
+    ): string | null {
+        if (current == null || prior == null || prior === 0) return null;
+        const pct = ((current - prior) / prior) * 100;
+        if (Math.abs(pct) < 0.5) return null;
+        const sign = pct > 0 ? "↑" : "↓";
+        return `${sign} ${Math.abs(pct).toFixed(0)}%`;
     }
 
     return (
@@ -120,10 +135,31 @@ export function KeyTermsPanel({ projectId, filenameByDocId }: Props) {
                                 {formatTerm(r.term_months)}
                             </td>
                             <td className="py-2 px-3">
-                                {formatMoney(
-                                    r.total_value_minor,
-                                    r.currency,
-                                )}
+                                <span>
+                                    {formatMoney(
+                                        r.total_value_minor,
+                                        r.currency,
+                                    )}
+                                </span>
+                                {(() => {
+                                    const delta = renderDelta(
+                                        r.total_value_minor,
+                                        priorValueByRow.get(r.id) ?? null,
+                                    );
+                                    if (!delta) return null;
+                                    const up = delta.startsWith("↑");
+                                    return (
+                                        <span
+                                            className={`ml-1.5 text-[10px] font-medium ${
+                                                up
+                                                    ? "text-emerald-600"
+                                                    : "text-red-600"
+                                            }`}
+                                        >
+                                            {delta}
+                                        </span>
+                                    );
+                                })()}
                             </td>
                             <td className="py-2 px-3">
                                 {r.auto_renew == null
