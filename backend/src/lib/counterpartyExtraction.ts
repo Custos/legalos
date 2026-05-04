@@ -52,6 +52,55 @@ function isSelfReference(
     return a === b || a.includes(b) || b.includes(a);
 }
 
+const KEEP_AS_IS = new Set([
+    "INC",
+    "INC.",
+    "LLC",
+    "LLP",
+    "LP",
+    "LTD",
+    "LTD.",
+    "PLC",
+    "GMBH",
+    "AG",
+    "SA",
+    "S.A.",
+    "S.A",
+    "CO",
+    "CO.",
+    "&",
+]);
+function normaliseEntityCase(input: string): string {
+    const s = input.trim();
+    if (!s) return s;
+    if (s.length <= 4 && /^[A-Z0-9&.]+$/.test(s)) return s;
+    const isAllUpper = s === s.toUpperCase() && /[A-Z]/.test(s);
+    const isAllLower = s === s.toLowerCase() && /[a-z]/.test(s);
+    if (!isAllUpper && !isAllLower) return s;
+    return s
+        .split(/(\s+|[,;])/)
+        .map((tok) => {
+            if (/^\s+$/.test(tok) || /^[,;]$/.test(tok)) return tok;
+            const upper = tok.toUpperCase();
+            if (KEEP_AS_IS.has(upper)) {
+                if (upper === "INC" || upper === "INC.") return "Inc.";
+                if (upper === "LLC") return "LLC";
+                if (upper === "LLP") return "LLP";
+                if (upper === "LP") return "LP";
+                if (upper === "LTD" || upper === "LTD.") return "Ltd.";
+                if (upper === "PLC") return "plc";
+                if (upper === "GMBH") return "GmbH";
+                if (upper === "AG") return "AG";
+                if (upper === "SA" || upper === "S.A" || upper === "S.A.")
+                    return "S.A.";
+                if (upper === "CO" || upper === "CO.") return "Co.";
+                return tok;
+            }
+            return tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase();
+        })
+        .join("");
+}
+
 interface ExtractResult {
     name: string | null;
     parent: string | null;
@@ -114,11 +163,11 @@ export async function extractCounterpartyFromText(
         };
         let name: string | null =
             typeof parsed.name === "string" && parsed.name.trim()
-                ? parsed.name.trim()
+                ? normaliseEntityCase(parsed.name.trim())
                 : null;
         let parent: string | null =
             typeof parsed.parent === "string" && parsed.parent.trim()
-                ? parsed.parent.trim()
+                ? normaliseEntityCase(parsed.parent.trim())
                 : null;
         if (isSelfReference(name, userOrg ?? null)) name = null;
         if (isSelfReference(parent, userOrg ?? null)) parent = null;

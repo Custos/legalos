@@ -64,6 +64,66 @@ function isSelfReference(
     return a === b || a.includes(b) || b.includes(a);
 }
 
+// Normalise display casing of an entity name. Many contracts spell the
+// counterparty in ALL CAPS in the preamble; preserving that yields ugly
+// displays and breaks case-insensitive grouping when other docs use
+// title case. Heuristic: if the string is fully uppercase OR fully
+// lowercase, convert to Title Case (preserving common suffixes like Inc.,
+// LLC, GmbH, AG, plc as-is). Acronyms ≤4 letters with no separators are
+// left alone (IBM, AT&T, etc.).
+const KEEP_AS_IS = new Set([
+    "INC",
+    "INC.",
+    "LLC",
+    "LLP",
+    "LP",
+    "LTD",
+    "LTD.",
+    "PLC",
+    "GMBH",
+    "AG",
+    "SA",
+    "S.A.",
+    "S.A",
+    "CO",
+    "CO.",
+    "&",
+]);
+function normaliseEntityCase(input: string): string {
+    const s = input.trim();
+    if (!s) return s;
+    if (s.length <= 4 && /^[A-Z0-9&.]+$/.test(s)) return s; // IBM, AT&T
+    const isAllUpper = s === s.toUpperCase() && /[A-Z]/.test(s);
+    const isAllLower = s === s.toLowerCase() && /[a-z]/.test(s);
+    if (!isAllUpper && !isAllLower) return s;
+    return s
+        .split(/(\s+|[,;])/)
+        .map((tok) => {
+            if (/^\s+$/.test(tok) || /^[,;]$/.test(tok)) return tok;
+            const upper = tok.toUpperCase();
+            if (KEEP_AS_IS.has(upper)) {
+                // Canonicalise common suffix forms.
+                if (upper === "INC" || upper === "INC.") return "Inc.";
+                if (upper === "LLC") return "LLC";
+                if (upper === "LLP") return "LLP";
+                if (upper === "LP") return "LP";
+                if (upper === "LTD" || upper === "LTD.") return "Ltd.";
+                if (upper === "PLC") return "plc";
+                if (upper === "GMBH") return "GmbH";
+                if (upper === "AG") return "AG";
+                if (upper === "SA" || upper === "S.A" || upper === "S.A.")
+                    return "S.A.";
+                if (upper === "CO" || upper === "CO.") return "Co.";
+                return tok;
+            }
+            return (
+                tok.charAt(0).toUpperCase() +
+                tok.slice(1).toLowerCase()
+            );
+        })
+        .join("");
+}
+
 export interface IntakeAnalysis {
     role: "buyer" | "seller" | "mutual";
     status: "draft" | "execution" | "unknown";
@@ -114,12 +174,12 @@ export async function analyzeIntakeFromText(
         let counterparty: string | null =
             typeof parsed.counterparty === "string" &&
             parsed.counterparty.trim()
-                ? parsed.counterparty.trim()
+                ? normaliseEntityCase(parsed.counterparty.trim())
                 : null;
         let parent_counterparty: string | null =
             typeof parsed.parent_counterparty === "string" &&
             parsed.parent_counterparty.trim()
-                ? parsed.parent_counterparty.trim()
+                ? normaliseEntityCase(parsed.parent_counterparty.trim())
                 : null;
         // Guard: if the model returned the user's own organization as the
         // counterparty (a common failure when the user's name appears in
