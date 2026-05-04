@@ -15,17 +15,42 @@ import { completeText } from "./llm";
 import { getUserModelSettings } from "./userSettings";
 import { getTemplate } from "./projectTemplates";
 
-const SYSTEM = `You are a legal document analyst. Identify the counterparty in this contract.
+function buildSystemPrompt(userOrg: string | null): string {
+    const orgLine = userOrg
+        ? `\n\nThe user's own organization is "${userOrg}". The user is one party to this contract — NEVER return "${userOrg}" or any obvious variant as the counterparty. The counterparty is always the OTHER party.`
+        : "";
+    return `You are a legal document analyst. Identify the counterparty in this contract.${orgLine}
 
-The user's organization is one party; the counterparty is the other party. If the role hint says "buyer", the counterparty is the vendor/seller. If the role hint says "seller", the counterparty is the customer/buyer. If the role is "mutual" (NDA, partnership), pick whichever party is NOT the user's organization, or return null if undetermined.
+If the role hint says "buyer", the counterparty is the vendor/seller. If the role hint says "seller", the counterparty is the customer/buyer. If the role is "mutual" (NDA, partnership), pick whichever party is NOT the user's organization, or return null if undetermined.
 
 Return ONLY a single minified JSON object, no markdown, no preamble:
 {"name": <string or null>, "parent": <string or null>}
 
 Rules:
-- "name": the counterparty's legal entity name (preserve "Inc.", "LLC", commas, etc.). Null if you can't identify with high confidence.
-- "parent": parent corporate entity if the document mentions one (e.g. "Stripe Inc., a wholly-owned subsidiary of Stripe Holdings"). Otherwise null.
+- "name": the OTHER party's legal entity name (preserve "Inc.", "LLC", commas, etc.). Null if you can't identify with high confidence.
+- "parent": parent corporate entity of the COUNTERPARTY if the document mentions one. Otherwise null.
 - Do not guess. Confidence threshold is high — null is the right answer when it's ambiguous.`;
+}
+
+function normaliseEntityName(s: string): string {
+    return s
+        .toLowerCase()
+        .replace(/[,\.]/g, "")
+        .replace(/\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|gmbh|ag|sa|plc|llp|lp)\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function isSelfReference(
+    candidate: string | null,
+    userOrg: string | null,
+): boolean {
+    if (!candidate || !userOrg) return false;
+    const a = normaliseEntityName(candidate);
+    const b = normaliseEntityName(userOrg);
+    if (!a || !b) return false;
+    return a === b || a.includes(b) || b.includes(a);
+}
 
 interface ExtractResult {
     name: string | null;
@@ -61,6 +86,7 @@ export async function extractCounterpartyFromText(
     filename: string,
     text: string,
     apiKeys?: import("./llm").UserApiKeys,
+    userOrg?: string | null,
 ): Promise<ExtractResult | null> {
     if (!text.trim()) return null;
     const user = `Role hint: ${role}\nFilename: ${filename}\n\nFirst portion of document:\n${text.slice(0, 8_000)}`;
@@ -68,7 +94,7 @@ export async function extractCounterpartyFromText(
     try {
         raw = await completeText({
             model,
-            systemPrompt: SYSTEM,
+            systemPrompt: buildSystemPrompt(userOrg ?? null),
             user,
             maxTokens: 200,
             apiKeys,
@@ -86,16 +112,17 @@ export async function extractCounterpartyFromText(
             name?: unknown;
             parent?: unknown;
         };
-        return {
-            name:
-                typeof parsed.name === "string" && parsed.name.trim()
-                    ? parsed.name.trim()
-                    : null,
-            parent:
-                typeof parsed.parent === "string" && parsed.parent.trim()
-                    ? parsed.parent.trim()
-                    : null,
-        };
+        let name: string | null =
+            typeof parsed.name === "string" && parsed.name.trim()
+                ? parsed.name.trim()
+                : null;
+        let parent: string | null =
+            typeof parsed.parent === "string" && parsed.parent.trim()
+                ? parsed.parent.trim()
+                : null;
+        if (isSelfReference(name, userOrg ?? null)) name = null;
+        if (isSelfReference(parent, userOrg ?? null)) parent = null;
+        return { name, parent };
     } catch {
         return null;
     }
@@ -124,16 +151,15 @@ export async function maybeAutofillCounterparty(opts: {
         const text = await loadDocText(opts.documentId, db);
         if (!text) return;
 
-        const { tabular_model, api_keys } = await getUserModelSettings(
-            opts.userId,
-            db,
-        );
+        const { tabular_model, api_keys, organisation } =
+            await getUserModelSettings(opts.userId, db);
         const result = await extractCounterpartyFromText(
             tabular_model,
             tmpl.role,
             "uploaded document",
             text,
             api_keys,
+            organisation,
         );
         if (!result?.name) return;
 

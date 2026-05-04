@@ -18,7 +18,11 @@ import { extractPdfMarkdown, extractDocxMarkdown } from "./textExtraction";
 import { completeText } from "./llm";
 import { getUserModelSettings } from "./userSettings";
 
-const SYSTEM = `You are a legal intake analyst classifying a contract document.
+function buildSystemPrompt(userOrg: string | null): string {
+    const orgLine = userOrg
+        ? `\n\nThe user's own organization is "${userOrg}". The user is one party to this contract — NEVER return "${userOrg}" (or any obvious variant: "${userOrg.replace(/[,\.]/g, "").trim()}") as the counterparty. The counterparty is always the OTHER party.`
+        : "";
+    return `You are a legal intake analyst classifying a contract document.${orgLine}
 
 Return ONLY a single minified JSON object, no markdown:
 {
@@ -33,11 +37,32 @@ Return ONLY a single minified JSON object, no markdown:
 Rules:
 - "role": is the user's organization the buyer (vendor contract, we pay), the seller (customer contract, we get paid), or mutual (NDA, partnership, two-sided)? Default to "mutual" if unclear.
 - "status": "execution" if signed/executed/final (look for signature blocks, "executed as of", clean text). "draft" if it's a redline, marked-up, has tracked changes, brackets like [TBD], or other work-in-progress signals. "unknown" only if you genuinely cannot tell.
-- "counterparty": the other party's legal entity name. Null if undetermined.
-- "parent_counterparty": parent corporate entity if the document references one (e.g. "Stripe Inc., a subsidiary of Stripe Holdings"). Null otherwise.
+- "counterparty": the OTHER party's legal entity name (not the user's organization). Null if undetermined.
+- "parent_counterparty": parent corporate entity of the COUNTERPARTY if the document references one (e.g. "Stripe Inc., a subsidiary of Stripe Holdings"). Otherwise null.
 - "lifecycle_hint": one of "original", "amendment", "renewal", "addendum", "sow", "order_form", "msa", "nda", "side_letter", or null. Pick the single best fit based on title/preamble.
 - "confidence": your overall confidence in this classification, 0.0 to 1.0.
 - High confidence threshold for counterparty. Null is the right answer when ambiguous.`;
+}
+
+function normaliseEntityName(s: string): string {
+    return s
+        .toLowerCase()
+        .replace(/[,\.]/g, "")
+        .replace(/\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|gmbh|ag|sa|plc|llp|lp)\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function isSelfReference(
+    candidate: string | null,
+    userOrg: string | null,
+): boolean {
+    if (!candidate || !userOrg) return false;
+    const a = normaliseEntityName(candidate);
+    const b = normaliseEntityName(userOrg);
+    if (!a || !b) return false;
+    return a === b || a.includes(b) || b.includes(a);
+}
 
 export interface IntakeAnalysis {
     role: "buyer" | "seller" | "mutual";
@@ -53,6 +78,7 @@ export async function analyzeIntakeFromText(
     filename: string,
     text: string,
     apiKeys?: import("./llm").UserApiKeys,
+    userOrg?: string | null,
 ): Promise<IntakeAnalysis | null> {
     if (!text.trim()) return null;
     const user = `Filename: ${filename}\n\nDocument text (first portion):\n${text.slice(0, 12_000)}`;
@@ -60,7 +86,7 @@ export async function analyzeIntakeFromText(
     try {
         raw = await completeText({
             model,
-            systemPrompt: SYSTEM,
+            systemPrompt: buildSystemPrompt(userOrg ?? null),
             user,
             maxTokens: 300,
             apiKeys,
@@ -85,19 +111,28 @@ export async function analyzeIntakeFromText(
             parsed.status === "unknown"
                 ? parsed.status
                 : "unknown";
+        let counterparty: string | null =
+            typeof parsed.counterparty === "string" &&
+            parsed.counterparty.trim()
+                ? parsed.counterparty.trim()
+                : null;
+        let parent_counterparty: string | null =
+            typeof parsed.parent_counterparty === "string" &&
+            parsed.parent_counterparty.trim()
+                ? parsed.parent_counterparty.trim()
+                : null;
+        // Guard: if the model returned the user's own organization as the
+        // counterparty (a common failure when the user's name appears in
+        // the filename or first paragraph), null it out rather than store
+        // a wrong value.
+        if (isSelfReference(counterparty, userOrg ?? null)) counterparty = null;
+        if (isSelfReference(parent_counterparty, userOrg ?? null))
+            parent_counterparty = null;
         return {
             role,
             status,
-            counterparty:
-                typeof parsed.counterparty === "string" &&
-                parsed.counterparty.trim()
-                    ? parsed.counterparty.trim()
-                    : null,
-            parent_counterparty:
-                typeof parsed.parent_counterparty === "string" &&
-                parsed.parent_counterparty.trim()
-                    ? parsed.parent_counterparty.trim()
-                    : null,
+            counterparty,
+            parent_counterparty,
             lifecycle_hint:
                 typeof parsed.lifecycle_hint === "string" &&
                 parsed.lifecycle_hint.trim()
@@ -142,15 +177,14 @@ export async function maybeAnalyzeIntake(opts: {
         }
         if (!text) return;
 
-        const { tabular_model, api_keys } = await getUserModelSettings(
-            opts.userId,
-            db,
-        );
+        const { tabular_model, api_keys, organisation } =
+            await getUserModelSettings(opts.userId, db);
         const analysis = await analyzeIntakeFromText(
             tabular_model,
             doc.filename as string,
             text,
             api_keys,
+            organisation,
         );
         if (!analysis) return;
 

@@ -10,6 +10,13 @@ export type UserModelSettings = {
     title_model: string;
     tabular_model: string;
     api_keys: UserApiKeys;
+    /**
+     * The user's own organization name (e.g. "Kodex, Inc."). Passed into
+     * intake/counterparty prompts so the LLM knows which side of an
+     * agreement is "us" vs the counterparty. Null if the user hasn't set
+     * it in their profile yet.
+     */
+    organisation: string | null;
 };
 
 // Title generation is a lightweight task — always routed to the cheapest model
@@ -29,7 +36,9 @@ export async function getUserModelSettings(
     const client = db ?? createServerSupabase();
     const { data } = await client
         .from("user_profiles")
-        .select("tabular_model, claude_api_key, gemini_api_key, xai_api_key")
+        .select(
+            "tabular_model, claude_api_key, gemini_api_key, xai_api_key, organisation",
+        )
         .eq("user_id", userId)
         .single();
 
@@ -43,6 +52,10 @@ export async function getUserModelSettings(
         title_model: resolveTitleModel(api_keys),
         tabular_model: resolveModel(data?.tabular_model, DEFAULT_TABULAR_MODEL),
         api_keys,
+        organisation:
+            typeof data?.organisation === "string" && data.organisation.trim()
+                ? data.organisation.trim()
+                : null,
     };
 }
 
