@@ -140,6 +140,17 @@ export async function listCounterparties(
     return apiRequest(`/projects/counterparties?role=${encodeURIComponent(role)}`);
 }
 
+export async function mergeCounterparty(
+    from: string,
+    to: string,
+): Promise<{ updated: number }> {
+    return apiRequest("/projects/counterparties/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to }),
+    });
+}
+
 export interface ContractFactsRow {
     id: string;
     project_id: string | null;

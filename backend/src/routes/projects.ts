@@ -119,6 +119,50 @@ projectsRouter.get("/templates", requireAuth, async (_req, res) => {
   res.json(PROJECT_TEMPLATES);
 });
 
+// POST /projects/counterparties/merge
+// Body: { from: string, to: string, role?: string }
+// Reassigns every project the caller can write where counterparty == from
+// to counterparty = to. Match is case-insensitive on the trimmed value.
+// Useful for collapsing "Acme Inc." and "Acme, Inc." into one group.
+projectsRouter.post(
+  "/counterparties/merge",
+  requireAuth,
+  async (req, res) => {
+    const userId = res.locals.userId as string;
+    const { from, to } = req.body as { from?: string; to?: string };
+    if (!from?.trim() || !to?.trim())
+      return void res
+        .status(400)
+        .json({ detail: "from and to are required" });
+    const fromKey = from.trim().toLowerCase();
+    const toClean = to.trim();
+
+    const db = createServerSupabase();
+    const { data: candidates } = await db
+      .from("projects")
+      .select("id, counterparty")
+      .eq("user_id", userId);
+    const ids = (candidates ?? [])
+      .filter(
+        (p) =>
+          (p.counterparty as string | null)?.trim().toLowerCase() ===
+          fromKey,
+      )
+      .map((p) => p.id as string);
+    if (ids.length === 0) return void res.json({ updated: 0 });
+
+    const { error } = await db
+      .from("projects")
+      .update({
+        counterparty: toClean,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ids);
+    if (error) return void res.status(500).json({ detail: error.message });
+    res.json({ updated: ids.length });
+  },
+);
+
 // GET /projects/counterparties?role=seller
 // Aggregates the user's projects by counterparty so the customer index
 // page can render "Acme Corp — 4 projects, last activity 2 days ago".

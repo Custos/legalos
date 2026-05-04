@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronRight } from "lucide-react";
+import { Building2, ChevronRight, GitMerge } from "lucide-react";
 import { HeaderSearchBtn } from "@/app/components/shared/HeaderSearchBtn";
 import {
     listCounterparties,
+    mergeCounterparty,
     type CounterpartyGroup,
 } from "@/app/lib/mikeApi";
 
@@ -34,6 +35,9 @@ export function CustomersOverview() {
     const [groups, setGroups] = useState<CounterpartyGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [mergingFrom, setMergingFrom] = useState<string | null>(null);
+    const [mergeTarget, setMergeTarget] = useState<string>("");
+    const [refreshTick, setRefreshTick] = useState(0);
     const router = useRouter();
 
     useEffect(() => {
@@ -55,7 +59,24 @@ export function CustomersOverview() {
         return () => {
             cancelled = true;
         };
-    }, [role]);
+    }, [role, refreshTick]);
+
+    async function handleMerge(from: string) {
+        const target = mergeTarget.trim();
+        if (!target || target === from) {
+            setMergingFrom(null);
+            setMergeTarget("");
+            return;
+        }
+        try {
+            await mergeCounterparty(from, target);
+        } catch {
+            /* ignore — surfaces nothing for now */
+        }
+        setMergingFrom(null);
+        setMergeTarget("");
+        setRefreshTick((t) => t + 1);
+    }
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -141,6 +162,20 @@ export function CustomersOverview() {
                                             </div>
                                         )}
                                     </div>
+                                    {g.counterparty !== "(Unassigned)" && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setMergingFrom(g.counterparty);
+                                                setMergeTarget("");
+                                            }}
+                                            title="Merge into another counterparty"
+                                            className="text-gray-300 hover:text-gray-700 transition-colors"
+                                        >
+                                            <GitMerge className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
                                     <div className="text-xs text-gray-500 shrink-0">
                                         {g.project_count}{" "}
                                         {g.project_count === 1
@@ -151,6 +186,56 @@ export function CustomersOverview() {
                                         {relTime(g.last_activity)}
                                     </div>
                                 </summary>
+                                {mergingFrom === g.counterparty && (
+                                    <div className="bg-amber-50 border-t border-amber-100 px-10 py-3 flex items-center gap-2">
+                                        <span className="text-xs text-gray-700">
+                                            Merge <strong>{g.counterparty}</strong> into:
+                                        </span>
+                                        <select
+                                            value={mergeTarget}
+                                            onChange={(e) =>
+                                                setMergeTarget(e.target.value)
+                                            }
+                                            className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+                                        >
+                                            <option value="">Pick target…</option>
+                                            {filtered
+                                                .filter(
+                                                    (other) =>
+                                                        other.counterparty !==
+                                                            g.counterparty &&
+                                                        other.counterparty !==
+                                                            "(Unassigned)",
+                                                )
+                                                .map((other) => (
+                                                    <option
+                                                        key={other.counterparty}
+                                                        value={other.counterparty}
+                                                    >
+                                                        {other.counterparty}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                        <button
+                                            onClick={() =>
+                                                handleMerge(g.counterparty)
+                                            }
+                                            disabled={!mergeTarget}
+                                            className="text-xs rounded-full px-3 py-1 bg-gray-900 text-white disabled:opacity-40"
+                                        >
+                                            Merge
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setMergingFrom(null);
+                                                setMergeTarget("");
+                                            }}
+                                            className="text-xs text-gray-500 hover:text-gray-700"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="bg-gray-50/50 border-t border-gray-100">
                                     {g.projects
                                         .slice()
