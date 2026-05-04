@@ -117,6 +117,87 @@ projectsRouter.get("/templates", requireAuth, async (_req, res) => {
   res.json(PROJECT_TEMPLATES);
 });
 
+// GET /projects/counterparties?role=seller
+// Aggregates the user's projects by counterparty so the customer index
+// page can render "Acme Corp — 4 projects, last activity 2 days ago".
+// Defaults to role=seller (i.e. customer contracts) but accepts any of
+// buyer/seller/mutual or "all" to bypass.
+projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const userEmail = res.locals.userEmail as string;
+  const role = (req.query.role as string | undefined) ?? "seller";
+  const db = createServerSupabase();
+
+  let query = db
+    .from("projects")
+    .select(
+      "id, name, counterparty, parent_counterparty, template, role, updated_at, created_at, user_id, shared_with",
+    );
+  if (role !== "all") query = query.eq("role", role);
+
+  const { data, error } = await query;
+  if (error) return void res.status(500).json({ detail: error.message });
+
+  const accessible = (data ?? []).filter((p) => {
+    if (p.user_id === userId) return true;
+    if (
+      userEmail &&
+      Array.isArray(p.shared_with) &&
+      p.shared_with.includes(userEmail)
+    )
+      return true;
+    return false;
+  });
+
+  type Group = {
+    counterparty: string;
+    parent_counterparty: string | null;
+    project_count: number;
+    last_activity: string;
+    projects: { id: string; name: string; updated_at: string }[];
+  };
+  const byCp = new Map<string, Group>();
+  for (const p of accessible) {
+    const cp = (p.counterparty as string | null)?.trim() || "(Unassigned)";
+    const key = cp.toLowerCase();
+    const existing = byCp.get(key);
+    const updatedAt = (p.updated_at as string) ?? (p.created_at as string);
+    if (existing) {
+      existing.project_count += 1;
+      existing.projects.push({
+        id: p.id as string,
+        name: p.name as string,
+        updated_at: updatedAt,
+      });
+      if (updatedAt > existing.last_activity)
+        existing.last_activity = updatedAt;
+      if (
+        !existing.parent_counterparty &&
+        (p.parent_counterparty as string | null)
+      )
+        existing.parent_counterparty = p.parent_counterparty as string;
+    } else {
+      byCp.set(key, {
+        counterparty: cp,
+        parent_counterparty: (p.parent_counterparty as string | null) ?? null,
+        project_count: 1,
+        last_activity: updatedAt,
+        projects: [
+          {
+            id: p.id as string,
+            name: p.name as string,
+            updated_at: updatedAt,
+          },
+        ],
+      });
+    }
+  }
+  const groups = Array.from(byCp.values()).sort((a, b) =>
+    a.counterparty.localeCompare(b.counterparty),
+  );
+  res.json(groups);
+});
+
 // GET /projects/:projectId
 projectsRouter.get("/:projectId", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
@@ -253,6 +334,22 @@ projectsRouter.patch("/:projectId", requireAuth, async (req, res) => {
   const updates: Record<string, unknown> = {};
   if (req.body.name != null) updates.name = req.body.name;
   if (req.body.cm_number != null) updates.cm_number = req.body.cm_number;
+  if (req.body.counterparty !== undefined)
+    updates.counterparty = req.body.counterparty || null;
+  if (req.body.parent_counterparty !== undefined)
+    updates.parent_counterparty = req.body.parent_counterparty || null;
+  if (req.body.template !== undefined) {
+    if (req.body.template === null || req.body.template === "") {
+      updates.template = null;
+      updates.role = null;
+    } else {
+      const tmpl = getTemplate(req.body.template);
+      if (!tmpl)
+        return void res.status(400).json({ detail: "Unknown template" });
+      updates.template = tmpl.slug;
+      updates.role = tmpl.role;
+    }
+  }
   if (Array.isArray(req.body.shared_with)) {
     // Normalise: lowercase + dedupe + drop empties.
     const seen = new Set<string>();

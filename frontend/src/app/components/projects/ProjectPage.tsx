@@ -690,6 +690,21 @@ export function ProjectPage({ projectId }: Props) {
         await updateProject(projectId, { name: newName });
     }
 
+    async function handleCounterpartyCommit(
+        field: "counterparty" | "parent_counterparty",
+        value: string,
+    ) {
+        if (!project) return;
+        const cleaned = value.trim() || null;
+        if ((project[field] ?? null) === cleaned) return;
+        if (project.is_owner === false) {
+            setOwnerOnlyAction("edit project details");
+            return;
+        }
+        setProject((prev) => (prev ? { ...prev, [field]: cleaned } : prev));
+        await updateProject(projectId, { [field]: cleaned });
+    }
+
     async function submitChatRename(chatId: string) {
         const trimmed = renameChatValue.trim();
         setRenamingChatId(null);
@@ -1260,11 +1275,53 @@ export function ProjectPage({ projectId }: Props) {
                                 {project.cm_number ? <span className="ml-1 text-gray-400">(#{project.cm_number})</span> : null}
                             </button>
                         ) : (
-                            <RenameableTitle
-                                value={project.name}
-                                onCommit={handleTitleCommit}
-                                suffix={project.cm_number ? <span className="ml-1 text-gray-400">(#{project.cm_number})</span> : null}
-                            />
+                            <div className="flex flex-col">
+                                <RenameableTitle
+                                    value={project.name}
+                                    onCommit={handleTitleCommit}
+                                    suffix={project.cm_number ? <span className="ml-1 text-gray-400">(#{project.cm_number})</span> : null}
+                                />
+                                <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5">
+                                    {project.template && (
+                                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 capitalize">
+                                            {project.template}
+                                        </span>
+                                    )}
+                                    <input
+                                        defaultValue={project.counterparty ?? ""}
+                                        placeholder="Counterparty…"
+                                        onBlur={(e) =>
+                                            handleCounterpartyCommit(
+                                                "counterparty",
+                                                e.target.value,
+                                            )
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                (e.target as HTMLInputElement).blur();
+                                            }
+                                        }}
+                                        className="bg-transparent focus:outline-none focus:bg-gray-50 px-1 rounded w-40 placeholder-gray-300"
+                                    />
+                                    <span className="text-gray-300">↳</span>
+                                    <input
+                                        defaultValue={project.parent_counterparty ?? ""}
+                                        placeholder="Parent entity…"
+                                        onBlur={(e) =>
+                                            handleCounterpartyCommit(
+                                                "parent_counterparty",
+                                                e.target.value,
+                                            )
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                (e.target as HTMLInputElement).blur();
+                                            }
+                                        }}
+                                        className="bg-transparent focus:outline-none focus:bg-gray-50 px-1 rounded w-32 placeholder-gray-300"
+                                    />
+                                </div>
+                            </div>
                         )}
                         {tab !== "documents" && (
                             <>

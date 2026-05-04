@@ -114,6 +114,9 @@ export async function updateProject(
         name?: string;
         cm_number?: string;
         shared_with?: string[];
+        template?: string | null;
+        counterparty?: string | null;
+        parent_counterparty?: string | null;
     },
 ): Promise<MikeProject> {
     return apiRequest<MikeProject>(`/projects/${projectId}`, {
@@ -121,6 +124,20 @@ export async function updateProject(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
     });
+}
+
+export interface CounterpartyGroup {
+    counterparty: string;
+    parent_counterparty: string | null;
+    project_count: number;
+    last_activity: string;
+    projects: { id: string; name: string; updated_at: string }[];
+}
+
+export async function listCounterparties(
+    role: "buyer" | "seller" | "mutual" | "all" = "seller",
+): Promise<CounterpartyGroup[]> {
+    return apiRequest(`/projects/counterparties?role=${encodeURIComponent(role)}`);
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
