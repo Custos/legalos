@@ -70,7 +70,11 @@ export function TRView({ reviewId, projectId }: Props) {
         { quote: string; page: number } | undefined
     >(undefined);
     const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
-    const [historyCellId, setHistoryCellId] = useState<string | null>(null);
+    const [historyCell, setHistoryCell] = useState<{
+        id: string;
+        documentId: string;
+        columnIndex: number;
+    } | null>(null);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [search, setSearch] = useState("");
     const searchParams = useSearchParams();
@@ -758,7 +762,13 @@ export function TRView({ reviewId, projectId }: Props) {
                             setExpandedCell(cell);
                             setExpandedCellCitation({ quote, page });
                         }}
-                        onShowHistory={(cell) => setHistoryCellId(cell.id)}
+                        onShowHistory={(cell) =>
+                            setHistoryCell({
+                                id: cell.id,
+                                documentId: cell.document_id,
+                                columnIndex: cell.column_index,
+                            })
+                        }
                         onUpdateColumn={handleUpdateColumn}
                         onDeleteColumn={handleDeleteColumn}
                         onAddColumn={() => setAddColOpen(true)}
@@ -900,10 +910,12 @@ export function TRView({ reviewId, projectId }: Props) {
             />
 
             <CellHistoryModal
-                open={historyCellId !== null}
-                onClose={() => setHistoryCellId(null)}
+                open={historyCell !== null}
+                onClose={() => setHistoryCell(null)}
                 reviewId={reviewId}
-                cellId={historyCellId}
+                cellId={historyCell?.id ?? null}
+                documentId={historyCell?.documentId}
+                columnIndex={historyCell?.columnIndex}
             />
         </div>
     );

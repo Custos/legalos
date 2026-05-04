@@ -720,10 +720,12 @@ tabularRouter.post(
         const userId = res.locals.userId as string;
         const userEmail = res.locals.userEmail as string | undefined;
         const { reviewId } = req.params;
-        const { document_id, column_index } = req.body as {
-            document_id: string;
-            column_index: number;
-        };
+        const { document_id, column_index, model: requestedModel } =
+            req.body as {
+                document_id: string;
+                column_index: number;
+                model?: string;
+            };
 
         if (!document_id || column_index == null)
             return void res
@@ -800,8 +802,9 @@ tabularRouter.post(
             userId,
             db,
         );
+        const effectiveModel = requestedModel ?? tabular_model;
         const result = await queryGemini(
-            tabular_model,
+            effectiveModel,
             doc.filename as string,
             markdown,
             column.prompt,
@@ -825,7 +828,7 @@ tabularRouter.post(
             .update({
                 content: JSON.stringify(result),
                 status: "done",
-                model: tabular_model,
+                model: effectiveModel,
                 system_prompt: SINGLE_CELL_SYSTEM,
                 column_prompt: column.prompt,
                 updated_at: new Date().toISOString(),

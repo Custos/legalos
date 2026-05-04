@@ -2,14 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { History, X } from "lucide-react";
-import { getCellVersions, type CellVersion } from "@/app/lib/mikeApi";
+import { History, X, Loader2 } from "lucide-react";
+import {
+    getCellVersions,
+    regenerateTabularCell,
+    type CellVersion,
+} from "@/app/lib/mikeApi";
+import { MODELS } from "@/app/components/assistant/ModelToggle";
 
 interface Props {
     open: boolean;
     onClose: () => void;
     reviewId: string;
     cellId: string | null;
+    documentId?: string;
+    columnIndex?: number;
 }
 
 interface CurrentCell {
@@ -47,12 +54,47 @@ function formatTime(iso: string): string {
     }
 }
 
-export function CellHistoryModal({ open, onClose, reviewId, cellId }: Props) {
+export function CellHistoryModal({
+    open,
+    onClose,
+    reviewId,
+    cellId,
+    documentId,
+    columnIndex,
+}: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [current, setCurrent] = useState<CurrentCell | null>(null);
     const [versions, setVersions] = useState<CellVersion[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [runningModel, setRunningModel] = useState<string | null>(null);
+
+    const refresh = async () => {
+        if (!cellId) return;
+        const data = await getCellVersions(reviewId, cellId);
+        setCurrent(data.current);
+        setVersions(data.versions);
+    };
+
+    async function handleRunOnModel(modelId: string) {
+        if (!documentId || columnIndex == null || runningModel) return;
+        setRunningModel(modelId);
+        try {
+            await regenerateTabularCell(
+                reviewId,
+                documentId,
+                columnIndex,
+                modelId,
+            );
+            await refresh();
+            // Show the new "Current" by clearing version selection.
+            setSelectedId(null);
+        } catch (e) {
+            setError((e as Error).message ?? "Run failed");
+        } finally {
+            setRunningModel(null);
+        }
+    }
 
     useEffect(() => {
         if (!open || !cellId) return;
@@ -97,12 +139,55 @@ export function CellHistoryModal({ open, onClose, reviewId, cellId }: Props) {
                         <History className="h-4 w-4" />
                         Cell history
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-gray-400 hover:text-gray-700 transition-colors"
-                    >
-                        <X className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {documentId && columnIndex != null && (
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-400 mr-1">
+                                    Run on
+                                </span>
+                                {MODELS.map((m) => {
+                                    const isRunning = runningModel === m.id;
+                                    const isCurrent =
+                                        current?.model === m.id;
+                                    return (
+                                        <button
+                                            key={m.id}
+                                            onClick={() =>
+                                                handleRunOnModel(m.id)
+                                            }
+                                            disabled={
+                                                runningModel !== null ||
+                                                isCurrent
+                                            }
+                                            title={
+                                                isCurrent
+                                                    ? "Current model — already shown"
+                                                    : `Re-run with ${m.label}`
+                                            }
+                                            className={`flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
+                                                isCurrent
+                                                    ? "border-gray-200 text-gray-400 cursor-default"
+                                                    : runningModel !== null
+                                                      ? "border-gray-200 text-gray-300 cursor-default"
+                                                      : "border-gray-300 text-gray-600 hover:bg-gray-50 cursor-pointer"
+                                            }`}
+                                        >
+                                            {isRunning && (
+                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                            )}
+                                            {m.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="text-gray-400 hover:text-gray-700 transition-colors ml-2"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
 
                 {loading ? (

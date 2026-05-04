@@ -755,6 +755,7 @@ export async function regenerateTabularCell(
     reviewId: string,
     documentId: string,
     columnIndex: number,
+    model?: string,
 ): Promise<{
     summary: string;
     flag: "green" | "grey" | "yellow" | "red";
@@ -766,6 +767,7 @@ export async function regenerateTabularCell(
         body: JSON.stringify({
             document_id: documentId,
             column_index: columnIndex,
+            ...(model ? { model } : {}),
         }),
     });
 }
