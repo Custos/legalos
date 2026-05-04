@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Inbox, Loader2, Upload } from "lucide-react";
 import {
     assignDocumentToProject,
+    bulkAssignDocumentsToProject,
     listIntake,
     uploadIntakeDocument,
     type IntakeDocument,
@@ -39,12 +40,24 @@ function fuzzyMatch(query: string | null, candidate: string | null): number {
     return hits >= 2 ? 0.7 : 0;
 }
 
+type RoleFilter = "all" | "buyer" | "seller" | "mutual";
+const ROLE_FILTERS: { id: RoleFilter; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "buyer", label: "Vendors" },
+    { id: "seller", label: "Customers" },
+    { id: "mutual", label: "Internal / Other" },
+];
+
 export function IntakeOverview() {
     const [docs, setDocs] = useState<IntakeDocument[]>([]);
     const [projects, setProjects] = useState<IntakeProjectsRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(0);
     const [pollTick, setPollTick] = useState(0);
+    const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [bulkBusy, setBulkBusy] = useState(false);
+    const [bulkProject, setBulkProject] = useState<string>("");
     const fileRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
 
@@ -88,6 +101,90 @@ export function IntakeOverview() {
         await refresh();
     }
 
+    const visibleDocs = useMemo(() => {
+        if (roleFilter === "all") return docs;
+        return docs.filter((d) => (d.intake_role ?? "mutual") === roleFilter);
+    }, [docs, roleFilter]);
+
+    const allVisibleSelected =
+        visibleDocs.length > 0 &&
+        visibleDocs.every((d) => selected.has(d.id));
+    const someVisibleSelected =
+        !allVisibleSelected &&
+        visibleDocs.some((d) => selected.has(d.id));
+
+    function toggleAll() {
+        const next = new Set(selected);
+        if (allVisibleSelected) {
+            for (const d of visibleDocs) next.delete(d.id);
+        } else {
+            for (const d of visibleDocs) next.add(d.id);
+        }
+        setSelected(next);
+    }
+
+    function toggleOne(id: string) {
+        const next = new Set(selected);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setSelected(next);
+    }
+
+    async function handleBulkAssign() {
+        if (!bulkProject || selected.size === 0) return;
+        setBulkBusy(true);
+        try {
+            await bulkAssignDocumentsToProject(Array.from(selected), {
+                project_id: bulkProject,
+            });
+            setSelected(new Set());
+            setBulkProject("");
+            await refresh();
+        } finally {
+            setBulkBusy(false);
+        }
+    }
+
+    async function handleBulkCreate() {
+        if (selected.size === 0) return;
+        const selectedDocs = docs.filter((d) => selected.has(d.id));
+        // Use the most-frequent counterparty + role across the selection.
+        const cpCount = new Map<string, number>();
+        const roleCount = new Map<string, number>();
+        for (const d of selectedDocs) {
+            const cp = d.intake_counterparty?.trim();
+            if (cp) cpCount.set(cp, (cpCount.get(cp) ?? 0) + 1);
+            const r = d.intake_role ?? "mutual";
+            roleCount.set(r, (roleCount.get(r) ?? 0) + 1);
+        }
+        const topCp = [...cpCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        const topRole = [...roleCount.entries()].sort(
+            (a, b) => b[1] - a[1],
+        )[0]?.[0];
+        const template =
+            topRole === "buyer"
+                ? "vendor"
+                : topRole === "seller"
+                  ? "customer"
+                  : "internal";
+        const name =
+            topCp ?? `${selectedDocs.length} document bundle`;
+        setBulkBusy(true);
+        try {
+            await bulkAssignDocumentsToProject(Array.from(selected), {
+                new_project: {
+                    name,
+                    template,
+                    counterparty: topCp,
+                },
+            });
+            setSelected(new Set());
+            await refresh();
+        } finally {
+            setBulkBusy(false);
+        }
+    }
+
     return (
         <div className="flex-1 overflow-y-auto bg-white">
             <div className="flex items-center justify-between px-8 py-4">
@@ -127,26 +224,128 @@ export function IntakeOverview() {
                 classified (vendor vs customer, draft vs execution, lifecycle
                 position) and matched against your existing counterparties so
                 you can assign it to an existing project or create a new one.
+                Standalone documents stay first-class and show up under their
+                counterparty without needing a project.
             </p>
+
+            <div className="px-8 pb-2 flex items-center gap-2 flex-wrap">
+                {ROLE_FILTERS.map((f) => {
+                    const count =
+                        f.id === "all"
+                            ? docs.length
+                            : docs.filter(
+                                  (d) =>
+                                      (d.intake_role ?? "mutual") === f.id,
+                              ).length;
+                    return (
+                        <button
+                            key={f.id}
+                            onClick={() => setRoleFilter(f.id)}
+                            className={`text-xs rounded-full px-3 py-1 border transition-colors ${
+                                roleFilter === f.id
+                                    ? "border-gray-900 bg-gray-900 text-white"
+                                    : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                            }`}
+                        >
+                            {f.label} {count > 0 && `(${count})`}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {selected.size > 0 && (
+                <div className="mx-8 mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-700">
+                        {selected.size} selected
+                    </span>
+                    <span className="text-xs text-gray-300">·</span>
+                    <select
+                        value={bulkProject}
+                        onChange={(e) => setBulkProject(e.target.value)}
+                        disabled={bulkBusy || projects.length === 0}
+                        className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600 disabled:opacity-50"
+                    >
+                        <option value="">Assign to existing project…</option>
+                        {projects
+                            .slice()
+                            .sort((a, b) =>
+                                (a.counterparty ?? a.name).localeCompare(
+                                    b.counterparty ?? b.name,
+                                ),
+                            )
+                            .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.counterparty
+                                        ? `${p.counterparty} (${p.name})`
+                                        : p.name}
+                                </option>
+                            ))}
+                    </select>
+                    <button
+                        disabled={!bulkProject || bulkBusy}
+                        onClick={handleBulkAssign}
+                        className="text-xs rounded-full bg-gray-900 text-white px-3 py-1 disabled:opacity-40"
+                    >
+                        Assign
+                    </button>
+                    <span className="text-xs text-gray-300">or</span>
+                    <button
+                        disabled={bulkBusy}
+                        onClick={handleBulkCreate}
+                        className="text-xs rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 px-3 py-1 disabled:opacity-40"
+                    >
+                        Create new project from selection
+                    </button>
+                    <button
+                        disabled={bulkBusy}
+                        onClick={() => setSelected(new Set())}
+                        className="ml-auto text-xs text-gray-500 hover:text-gray-700"
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
 
             <div className="px-8 pb-12">
                 {loading ? (
                     <div className="text-sm text-gray-400 py-8">Loading…</div>
-                ) : docs.length === 0 ? (
+                ) : visibleDocs.length === 0 ? (
                     <div className="border border-dashed border-gray-200 rounded-lg p-12 text-center text-sm text-gray-400">
-                        Nothing waiting. Drop contracts here to get started.
+                        {docs.length === 0
+                            ? "Nothing waiting. Drop contracts here to get started."
+                            : "Nothing matches this filter."}
                     </div>
                 ) : (
                     <div className="border border-gray-100 rounded-lg overflow-hidden">
-                        {docs.map((d) => (
+                        <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50/40 text-[10px] uppercase tracking-wider text-gray-400">
+                            <input
+                                type="checkbox"
+                                className="h-3 w-3 cursor-pointer accent-black"
+                                checked={allVisibleSelected}
+                                ref={(el) => {
+                                    if (el)
+                                        el.indeterminate = someVisibleSelected;
+                                }}
+                                onChange={toggleAll}
+                            />
+                            <span>{visibleDocs.length} documents</span>
+                        </div>
+                        {visibleDocs.map((d) => (
                             <IntakeRow
                                 key={d.id}
                                 doc={d}
                                 projects={projects}
+                                checked={selected.has(d.id)}
+                                onToggleCheck={() => toggleOne(d.id)}
                                 onAssigned={(pid) => {
                                     setDocs((prev) =>
                                         prev.filter((x) => x.id !== d.id),
                                     );
+                                    setSelected((prev) => {
+                                        const n = new Set(prev);
+                                        n.delete(d.id);
+                                        return n;
+                                    });
                                     router.push(`/projects/${pid}`);
                                 }}
                                 onRefresh={refresh}
@@ -162,11 +361,15 @@ export function IntakeOverview() {
 function IntakeRow({
     doc,
     projects,
+    checked,
+    onToggleCheck,
     onAssigned,
     onRefresh,
 }: {
     doc: IntakeDocument;
     projects: IntakeProjectsRow[];
+    checked: boolean;
+    onToggleCheck: () => void;
     onAssigned: (projectId: string) => void;
     onRefresh: () => Promise<void>;
 }) {
@@ -240,7 +443,13 @@ function IntakeRow({
     const status = doc.intake_status ?? "unknown";
 
     return (
-        <div className="border-b border-gray-100 last:border-b-0 px-4 py-3 flex items-start gap-4 hover:bg-gray-50 transition-colors">
+        <div className="border-b border-gray-100 last:border-b-0 px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={onToggleCheck}
+                className="mt-1 h-3 w-3 cursor-pointer accent-black shrink-0"
+            />
             <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900 truncate">
                     {doc.filename}

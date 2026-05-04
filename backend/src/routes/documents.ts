@@ -88,6 +88,91 @@ documentsRouter.get("/intake", requireAuth, async (_req, res) => {
   res.json({ documents: docs ?? [], projects: projects ?? [] });
 });
 
+// POST /single-documents/bulk-assign
+// Body:
+//   { document_ids: string[], project_id: string }                                → assign all to existing
+//   { document_ids: string[], new_project: { name, template?, counterparty?, parent_counterparty? } } → create one project + assign all
+documentsRouter.post("/bulk-assign", requireAuth, async (req, res) => {
+  const userId = res.locals.userId as string;
+  const { document_ids, project_id, new_project } = req.body as {
+    document_ids?: string[];
+    project_id?: string;
+    new_project?: {
+      name?: string;
+      template?: string;
+      counterparty?: string;
+      parent_counterparty?: string;
+    };
+  };
+  if (!Array.isArray(document_ids) || document_ids.length === 0)
+    return void res
+      .status(400)
+      .json({ detail: "document_ids must be a non-empty array" });
+
+  const db = createServerSupabase();
+  // Verify the caller owns every requested document and that none are
+  // already assigned. Anything mismatched is rejected before mutation.
+  const { data: docs } = await db
+    .from("documents")
+    .select("id, user_id, project_id")
+    .in("id", document_ids);
+  const owned = (docs ?? []).filter((d) => d.user_id === userId && !d.project_id);
+  if (owned.length !== document_ids.length)
+    return void res.status(400).json({
+      detail:
+        "Some documents are not yours, already assigned, or do not exist",
+    });
+
+  let targetProjectId: string;
+  if (project_id) {
+    const { data: target } = await db
+      .from("projects")
+      .select("id, user_id")
+      .eq("id", project_id)
+      .single();
+    if (!target || target.user_id !== userId)
+      return void res.status(404).json({ detail: "Project not found" });
+    targetProjectId = target.id as string;
+  } else if (new_project?.name?.trim()) {
+    const tmpl = new_project.template
+      ? getTemplate(new_project.template)
+      : null;
+    const { data: created, error: createErr } = await db
+      .from("projects")
+      .insert({
+        user_id: userId,
+        name: new_project.name.trim(),
+        template: tmpl?.slug ?? null,
+        role: tmpl?.role ?? null,
+        counterparty: new_project.counterparty?.trim() || null,
+        parent_counterparty:
+          new_project.parent_counterparty?.trim() || null,
+      })
+      .select("id")
+      .single();
+    if (createErr || !created)
+      return void res
+        .status(500)
+        .json({ detail: createErr?.message ?? "Failed to create project" });
+    targetProjectId = created.id as string;
+  } else {
+    return void res
+      .status(400)
+      .json({ detail: "project_id or new_project required" });
+  }
+
+  const { error: assignErr } = await db
+    .from("documents")
+    .update({
+      project_id: targetProjectId,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", document_ids);
+  if (assignErr)
+    return void res.status(500).json({ detail: assignErr.message });
+  res.json({ ok: true, project_id: targetProjectId, count: document_ids.length });
+});
+
 // POST /single-documents/:documentId/assign
 // Body:
 //   { project_id: string }                                          → assign to existing

@@ -253,6 +253,26 @@ export async function uploadIntakeDocument(file: File): Promise<unknown> {
     return r.json();
 }
 
+export async function bulkAssignDocumentsToProject(
+    documentIds: string[],
+    payload:
+        | { project_id: string }
+        | {
+              new_project: {
+                  name: string;
+                  template?: string;
+                  counterparty?: string;
+                  parent_counterparty?: string;
+              };
+          },
+): Promise<{ ok: boolean; project_id: string; count: number }> {
+    return apiRequest("/single-documents/bulk-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document_ids: documentIds, ...payload }),
+    });
+}
+
 export async function assignDocumentToProject(
     documentId: string,
     payload:

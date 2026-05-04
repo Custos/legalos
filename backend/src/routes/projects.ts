@@ -156,33 +156,51 @@ projectsRouter.get(
       return false;
     });
     const projectIds = projects.map((p) => p.id as string);
-    if (projectIds.length === 0)
-      return void res.json({
-        counterparty: cpName,
-        projects: [],
-        documents: [],
-        facts: [],
-      });
 
-    const [{ data: documents }, { data: facts }] = await Promise.all([
-      db
-        .from("documents")
-        .select(
-          "id, project_id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_lifecycle_hint, intake_confidence",
-        )
-        .in("project_id", projectIds)
-        .order("created_at", { ascending: true }),
-      db
-        .from("contract_facts")
-        .select("*")
-        .in("project_id", projectIds)
-        .order("extracted_at", { ascending: true }),
+    // Standalone documents the user owns whose intake_counterparty matches.
+    const { data: standaloneDocs } = await db
+      .from("documents")
+      .select(
+        "id, project_id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_lifecycle_hint, intake_confidence",
+      )
+      .eq("user_id", userId)
+      .is("project_id", null)
+      .ilike("intake_counterparty", cpName);
+
+    const projectDocsPromise =
+      projectIds.length > 0
+        ? db
+            .from("documents")
+            .select(
+              "id, project_id, filename, file_type, page_count, created_at, intake_role, intake_status, intake_counterparty, intake_lifecycle_hint, intake_confidence",
+            )
+            .in("project_id", projectIds)
+            .order("created_at", { ascending: true })
+        : Promise.resolve({ data: [] as unknown[] });
+    const factsPromise =
+      projectIds.length > 0
+        ? db
+            .from("contract_facts")
+            .select("*")
+            .in("project_id", projectIds)
+            .order("extracted_at", { ascending: true })
+        : Promise.resolve({ data: [] as unknown[] });
+    const [{ data: projectDocs }, { data: facts }] = await Promise.all([
+      projectDocsPromise,
+      factsPromise,
     ]);
+
+    const documents = [
+      ...((projectDocs as Record<string, unknown>[]) ?? []),
+      ...((standaloneDocs as Record<string, unknown>[]) ?? []),
+    ].sort((a, b) =>
+      String(a.created_at).localeCompare(String(b.created_at)),
+    );
 
     res.json({
       counterparty: cpName,
       projects,
-      documents: documents ?? [],
+      documents,
       facts: facts ?? [],
     });
   },
@@ -233,10 +251,11 @@ projectsRouter.post(
 );
 
 // GET /projects/counterparties?role=seller
-// Aggregates the user's projects by counterparty so the customer index
-// page can render "Acme Corp — 4 projects, last activity 2 days ago".
-// Defaults to role=seller (i.e. customer contracts) but accepts any of
-// buyer/seller/mutual or "all" to bypass.
+// Aggregates the user's projects + standalone documents by counterparty
+// so the customer index can render "Acme Corp — 4 projects, 7 standalone
+// docs, last activity 2 days ago". Standalone docs use intake_counterparty
+// + intake_role as their classification. Defaults to role=seller but
+// accepts buyer/seller/mutual or "all".
 projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
   const userEmail = res.locals.userEmail as string;
@@ -268,45 +287,69 @@ projectsRouter.get("/counterparties", requireAuth, async (req, res) => {
     counterparty: string;
     parent_counterparty: string | null;
     project_count: number;
+    standalone_count: number;
     last_activity: string;
     projects: { id: string; name: string; updated_at: string }[];
   };
   const byCp = new Map<string, Group>();
-  for (const p of accessible) {
-    const cp = (p.counterparty as string | null)?.trim() || "(Unassigned)";
+  function ensure(cpRaw: string | null, parent: string | null): Group {
+    const cp = cpRaw?.trim() || "(Unassigned)";
     const key = cp.toLowerCase();
     const existing = byCp.get(key);
-    const updatedAt = (p.updated_at as string) ?? (p.created_at as string);
     if (existing) {
-      existing.project_count += 1;
-      existing.projects.push({
-        id: p.id as string,
-        name: p.name as string,
-        updated_at: updatedAt,
-      });
-      if (updatedAt > existing.last_activity)
-        existing.last_activity = updatedAt;
-      if (
-        !existing.parent_counterparty &&
-        (p.parent_counterparty as string | null)
-      )
-        existing.parent_counterparty = p.parent_counterparty as string;
-    } else {
-      byCp.set(key, {
-        counterparty: cp,
-        parent_counterparty: (p.parent_counterparty as string | null) ?? null,
-        project_count: 1,
-        last_activity: updatedAt,
-        projects: [
-          {
-            id: p.id as string,
-            name: p.name as string,
-            updated_at: updatedAt,
-          },
-        ],
-      });
+      if (!existing.parent_counterparty && parent)
+        existing.parent_counterparty = parent;
+      return existing;
     }
+    const fresh: Group = {
+      counterparty: cp,
+      parent_counterparty: parent,
+      project_count: 0,
+      standalone_count: 0,
+      last_activity: "",
+      projects: [],
+    };
+    byCp.set(key, fresh);
+    return fresh;
   }
+  for (const p of accessible) {
+    const g = ensure(
+      p.counterparty as string | null,
+      (p.parent_counterparty as string | null) ?? null,
+    );
+    g.project_count += 1;
+    const updatedAt = (p.updated_at as string) ?? (p.created_at as string);
+    g.projects.push({
+      id: p.id as string,
+      name: p.name as string,
+      updated_at: updatedAt,
+    });
+    if (updatedAt > g.last_activity) g.last_activity = updatedAt;
+  }
+
+  // Pull in the user's standalone documents (project_id IS NULL) that have
+  // an intake_role matching the requested filter, so the customer index
+  // surfaces orphan contracts (NDAs, one-offs, historical imports) too.
+  let docQuery = db
+    .from("documents")
+    .select(
+      "id, intake_counterparty, intake_parent_counterparty, intake_role, created_at, updated_at",
+    )
+    .eq("user_id", userId)
+    .is("project_id", null)
+    .not("intake_counterparty", "is", null);
+  if (role !== "all") docQuery = docQuery.eq("intake_role", role);
+  const { data: standaloneDocs } = await docQuery;
+  for (const d of standaloneDocs ?? []) {
+    const g = ensure(
+      d.intake_counterparty as string | null,
+      (d.intake_parent_counterparty as string | null) ?? null,
+    );
+    g.standalone_count += 1;
+    const updatedAt = (d.updated_at as string) ?? (d.created_at as string);
+    if (updatedAt > g.last_activity) g.last_activity = updatedAt;
+  }
+
   const groups = Array.from(byCp.values()).sort((a, b) =>
     a.counterparty.localeCompare(b.counterparty),
   );
