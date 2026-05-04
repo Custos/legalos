@@ -11,6 +11,7 @@ import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
 import { singleFileUpload } from "../lib/upload";
 import { PROJECT_TEMPLATES, getTemplate } from "../lib/projectTemplates";
+import { maybeAutofillCounterparty } from "../lib/counterpartyExtraction";
 
 export const projectsRouter = Router();
 const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
@@ -832,6 +833,16 @@ export async function handleDocumentUpload(
             pdf_storage_path: pdfStoragePath,
         }
       : updated;
+    // Fire-and-forget: if this project has a vendor/customer template and
+    // no counterparty set yet, kick off LLM extraction. Never blocks the
+    // upload response and silently ignores failures.
+    if (projectId) {
+      void maybeAutofillCounterparty({
+        projectId,
+        documentId: doc.id as string,
+        userId,
+      });
+    }
     return void res.status(201).json(responseDoc);
   } catch (e) {
     await db.from("documents").update({ status: "error" }).eq("id", doc.id);
