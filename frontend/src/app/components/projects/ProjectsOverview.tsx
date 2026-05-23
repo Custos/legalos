@@ -270,7 +270,6 @@ export function ProjectsOverview() {
                         Name
                     </div>
                     <div className="ml-auto w-24 shrink-0 text-left">Type</div>
-                    <div className="w-56 shrink-0 text-left">Counterparty</div>
                     <div className="w-20 shrink-0 text-left">Files</div>
                     <div className="w-32 shrink-0 text-left">Reviews</div>
                     <div className="w-32 shrink-0 text-left">Updated</div>
@@ -397,22 +396,6 @@ export function ProjectsOverview() {
                                         <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 capitalize">
                                             {project.template}
                                         </span>
-                                    ) : (
-                                        <span className="text-gray-300">—</span>
-                                    )}
-                                </div>
-                                <div className="w-56 shrink-0 text-sm text-gray-700 truncate">
-                                    {project.counterparty ? (
-                                        <>
-                                            <span className="truncate">
-                                                {project.counterparty}
-                                            </span>
-                                            {project.parent_counterparty && (
-                                                <span className="ml-1 text-[11px] text-gray-400">
-                                                    ↳ {project.parent_counterparty}
-                                                </span>
-                                            )}
-                                        </>
                                     ) : (
                                         <span className="text-gray-300">—</span>
                                     )}

@@ -83,6 +83,35 @@ export async function ensureDocAccess(
 }
 
 /**
+ * Batch variant of `ensureDocAccess`. Returns the subset of document IDs the
+ * caller is allowed to operate on. Used by tabular review endpoints that
+ * accept document_ids from the client to prevent cross-tenant attachment.
+ */
+export async function filterAccessibleDocIds(
+    documentIds: string[],
+    userId: string,
+    userEmail: string | null | undefined,
+    db: Db,
+): Promise<string[]> {
+    if (documentIds.length === 0) return [];
+    const { data: docs } = await db
+        .from("documents")
+        .select("id, user_id, project_id")
+        .in("id", documentIds);
+    const out: string[] = [];
+    for (const d of docs ?? []) {
+        const access = await ensureDocAccess(
+            { user_id: d.user_id, project_id: d.project_id },
+            userId,
+            userEmail,
+            db,
+        );
+        if (access.ok) out.push(d.id);
+    }
+    return out;
+}
+
+/**
  * Same shape as `ensureDocAccess`, for tabular_reviews. A review can be
  * shared in two ways:
  *   1. Indirectly — if `project_id` is set, everyone with project access

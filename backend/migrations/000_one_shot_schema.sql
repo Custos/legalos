@@ -1,7 +1,9 @@
--- Mike one-shot Supabase schema
--- Based on supabase-migration.sql plus the later backend/migrations/*.sql files.
--- Use this for a fresh Supabase database. Existing deployments should continue
--- to apply the incremental migration files instead.
+-- Mike base Supabase schema
+--
+-- This file is the BASE schema only. It does NOT include the schema changes
+-- introduced by 001..NNN — those must be applied in order after this file.
+-- For a fresh deploy run every migration file in this directory in numeric
+-- order. Do not rely on this file alone.
 
 create extension if not exists "pgcrypto";
 

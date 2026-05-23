@@ -691,21 +691,6 @@ export function ProjectPage({ projectId }: Props) {
         await updateProject(projectId, { name: newName });
     }
 
-    async function handleCounterpartyCommit(
-        field: "counterparty" | "parent_counterparty",
-        value: string,
-    ) {
-        if (!project) return;
-        const cleaned = value.trim() || null;
-        if ((project[field] ?? null) === cleaned) return;
-        if (project.is_owner === false) {
-            setOwnerOnlyAction("edit project details");
-            return;
-        }
-        setProject((prev) => (prev ? { ...prev, [field]: cleaned } : prev));
-        await updateProject(projectId, { [field]: cleaned });
-    }
-
     async function submitChatRename(chatId: string) {
         const trimmed = renameChatValue.trim();
         setRenamingChatId(null);
@@ -1288,39 +1273,6 @@ export function ProjectPage({ projectId }: Props) {
                                             {project.template}
                                         </span>
                                     )}
-                                    <input
-                                        defaultValue={project.counterparty ?? ""}
-                                        placeholder="Counterparty…"
-                                        onBlur={(e) =>
-                                            handleCounterpartyCommit(
-                                                "counterparty",
-                                                e.target.value,
-                                            )
-                                        }
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                (e.target as HTMLInputElement).blur();
-                                            }
-                                        }}
-                                        className="bg-transparent focus:outline-none focus:bg-gray-50 px-1 rounded w-40 placeholder-gray-300"
-                                    />
-                                    <span className="text-gray-300">↳</span>
-                                    <input
-                                        defaultValue={project.parent_counterparty ?? ""}
-                                        placeholder="Parent entity…"
-                                        onBlur={(e) =>
-                                            handleCounterpartyCommit(
-                                                "parent_counterparty",
-                                                e.target.value,
-                                            )
-                                        }
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                (e.target as HTMLInputElement).blur();
-                                            }
-                                        }}
-                                        className="bg-transparent focus:outline-none focus:bg-gray-50 px-1 rounded w-32 placeholder-gray-300"
-                                    />
                                 </div>
                             </div>
                         )}

@@ -83,7 +83,7 @@ documentsRouter.get("/intake", requireAuth, async (_req, res) => {
 
   const { data: projects } = await db
     .from("projects")
-    .select("id, name, counterparty, parent_counterparty, role, template")
+    .select("id, name, role, template")
     .eq("user_id", userId);
   res.json({ documents: docs ?? [], projects: projects ?? [] });
 });
@@ -91,7 +91,7 @@ documentsRouter.get("/intake", requireAuth, async (_req, res) => {
 // POST /single-documents/bulk-assign
 // Body:
 //   { document_ids: string[], project_id: string }                                → assign all to existing
-//   { document_ids: string[], new_project: { name, template?, counterparty?, parent_counterparty? } } → create one project + assign all
+//   { document_ids: string[], new_project: { name, template? } } → create one project + assign all
 documentsRouter.post("/bulk-assign", requireAuth, async (req, res) => {
   const userId = res.locals.userId as string;
   const { document_ids, project_id, new_project } = req.body as {
@@ -100,8 +100,6 @@ documentsRouter.post("/bulk-assign", requireAuth, async (req, res) => {
     new_project?: {
       name?: string;
       template?: string;
-      counterparty?: string;
-      parent_counterparty?: string;
     };
   };
   if (!Array.isArray(document_ids) || document_ids.length === 0)
@@ -144,9 +142,6 @@ documentsRouter.post("/bulk-assign", requireAuth, async (req, res) => {
         name: new_project.name.trim(),
         template: tmpl?.slug ?? null,
         role: tmpl?.role ?? null,
-        counterparty: new_project.counterparty?.trim() || null,
-        parent_counterparty:
-          new_project.parent_counterparty?.trim() || null,
       })
       .select("id")
       .single();
@@ -170,13 +165,19 @@ documentsRouter.post("/bulk-assign", requireAuth, async (req, res) => {
     .in("id", document_ids);
   if (assignErr)
     return void res.status(500).json({ detail: assignErr.message });
+  // Re-parent any contract_facts rows extracted while the docs were
+  // standalone so they show up in the project's key-terms panel.
+  await db
+    .from("contract_facts")
+    .update({ project_id: targetProjectId })
+    .in("document_id", document_ids);
   res.json({ ok: true, project_id: targetProjectId, count: document_ids.length });
 });
 
 // POST /single-documents/:documentId/assign
 // Body:
 //   { project_id: string }                                          → assign to existing
-//   { new_project: { name, template?, counterparty? } }             → create + assign
+//   { new_project: { name, template? } }                           → create + assign
 // On create, the new project inherits role from the template.
 documentsRouter.post(
   "/:documentId/assign",
@@ -189,8 +190,6 @@ documentsRouter.post(
       new_project?: {
         name?: string;
         template?: string;
-        counterparty?: string;
-        parent_counterparty?: string;
       };
     };
     const db = createServerSupabase();
@@ -228,10 +227,6 @@ documentsRouter.post(
           name: body.new_project.name.trim(),
           template: tmpl?.slug ?? null,
           role: tmpl?.role ?? null,
-          counterparty:
-            body.new_project.counterparty?.trim() || null,
-          parent_counterparty:
-            body.new_project.parent_counterparty?.trim() || null,
         })
         .select("id")
         .single();
@@ -255,6 +250,11 @@ documentsRouter.post(
       .eq("id", documentId);
     if (assignErr)
       return void res.status(500).json({ detail: assignErr.message });
+    // Re-parent any contract_facts row extracted while the doc was standalone.
+    await db
+      .from("contract_facts")
+      .update({ project_id: targetProjectId })
+      .eq("document_id", documentId);
     res.json({ ok: true, project_id: targetProjectId });
   },
 );

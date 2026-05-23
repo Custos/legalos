@@ -115,8 +115,6 @@ export async function updateProject(
         cm_number?: string;
         shared_with?: string[];
         template?: string | null;
-        counterparty?: string | null;
-        parent_counterparty?: string | null;
     },
 ): Promise<MikeProject> {
     return apiRequest<MikeProject>(`/projects/${projectId}`, {
@@ -127,10 +125,12 @@ export async function updateProject(
 }
 
 export interface CounterpartyGroup {
+    slug: string;
     counterparty: string;
     parent_counterparty: string | null;
     project_count: number;
     standalone_count: number;
+    document_count: number;
     last_activity: string;
     projects: { id: string; name: string; updated_at: string }[];
 }
@@ -142,49 +142,38 @@ export async function listCounterparties(
 }
 
 export interface CounterpartyTimeline {
+    slug: string;
     counterparty: string;
     projects: {
         id: string;
         name: string;
-        counterparty: string | null;
-        parent_counterparty: string | null;
-        role: "buyer" | "seller" | "mutual" | null;
         template: string | null;
         created_at: string;
         updated_at: string;
     }[];
     documents: {
         id: string;
-        project_id: string;
+        project_id: string | null;
         filename: string;
         file_type: string;
         page_count: number | null;
         created_at: string;
         intake_role: "buyer" | "seller" | "mutual" | null;
         intake_status: "draft" | "execution" | "unknown" | null;
+        intake_counterparty: string | null;
         intake_lifecycle_hint: string | null;
+        intake_summary: string | null;
         intake_confidence: number | null;
     }[];
     facts: ContractFactsRow[];
 }
 
 export async function getCounterpartyTimeline(
-    name: string,
+    slug: string,
 ): Promise<CounterpartyTimeline> {
     return apiRequest(
-        `/projects/counterparties/${encodeURIComponent(name)}/timeline`,
+        `/projects/counterparties/${encodeURIComponent(slug)}/timeline`,
     );
-}
-
-export async function mergeCounterparty(
-    from: string,
-    to: string,
-): Promise<{ updated: number }> {
-    return apiRequest("/projects/counterparties/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to }),
-    });
 }
 
 export interface ContractFactsRow {
@@ -221,6 +210,7 @@ export interface IntakeDocument {
     intake_counterparty: string | null;
     intake_parent_counterparty: string | null;
     intake_lifecycle_hint: string | null;
+    intake_summary: string | null;
     intake_confidence: number | null;
     intake_analyzed_at: string | null;
 }
@@ -228,8 +218,6 @@ export interface IntakeDocument {
 export interface IntakeProjectsRow {
     id: string;
     name: string;
-    counterparty: string | null;
-    parent_counterparty: string | null;
     role: "buyer" | "seller" | "mutual" | null;
     template: string | null;
 }
@@ -262,8 +250,6 @@ export async function bulkAssignDocumentsToProject(
               new_project: {
                   name: string;
                   template?: string;
-                  counterparty?: string;
-                  parent_counterparty?: string;
               };
           },
 ): Promise<{ ok: boolean; project_id: string; count: number }> {
@@ -282,8 +268,6 @@ export async function assignDocumentToProject(
               new_project: {
                   name: string;
                   template?: string;
-                  counterparty?: string;
-                  parent_counterparty?: string;
               };
           },
 ): Promise<{ ok: boolean; project_id: string }> {

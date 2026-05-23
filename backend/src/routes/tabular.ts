@@ -19,6 +19,7 @@ import { getUserApiKeys, getUserModelSettings } from "../lib/userSettings";
 import {
     checkProjectAccess,
     ensureReviewAccess,
+    filterAccessibleDocIds,
     listAccessibleProjectIds,
 } from "../lib/access";
 
@@ -240,6 +241,13 @@ tabularRouter.post("/", requireAuth, async (req, res) => {
         if (!access.ok)
             return void res.status(404).json({ detail: "Project not found" });
     }
+
+    // Restrict cells to documents the caller can actually access — prevents
+    // attaching arbitrary doc UUIDs to a review.
+    const allowedDocIds = Array.isArray(document_ids)
+        ? await filterAccessibleDocIds(document_ids, userId, userEmail, db)
+        : [];
+
     const { data: review, error } = await db
         .from("tabular_reviews")
         .insert({
@@ -256,7 +264,7 @@ tabularRouter.post("/", requireAuth, async (req, res) => {
             .status(500)
             .json({ detail: error?.message ?? "Failed to create review" });
 
-    const cells = document_ids.flatMap((docId) =>
+    const cells = allowedDocIds.flatMap((docId) =>
         columns_config.map((col) => ({
             review_id: review.id,
             document_id: docId,
@@ -546,7 +554,15 @@ tabularRouter.patch("/:reviewId", requireAuth, async (req, res) => {
 
         if (Array.isArray(req.body.document_ids)) {
             // document_ids is the new source of truth — delete removed docs' cells
-            const newDocIds = req.body.document_ids as string[];
+            const requested = req.body.document_ids as string[];
+            // Filter to docs the caller can access; silently drop the rest so
+            // a tampered payload can't smuggle foreign doc IDs into the review.
+            const newDocIds = await filterAccessibleDocIds(
+                requested,
+                userId,
+                userEmail,
+                db,
+            );
             const existingDocIds = (existingCells ?? []).map(
                 (cell) => cell.document_id,
             );
@@ -756,6 +772,18 @@ tabularRouter.post(
         if (!column)
             return void res.status(400).json({ detail: "Column not found" });
 
+        // Confirm the cell exists for this review/doc pair AND that the
+        // caller has access to the document. Without this check, a user
+        // could pass any document_id and have the server generate against it.
+        const allowedDocs = await filterAccessibleDocIds(
+            [document_id],
+            userId,
+            userEmail,
+            db,
+        );
+        if (allowedDocs.length === 0)
+            return void res.status(404).json({ detail: "Document not found" });
+
         const { data: doc } = await db
             .from("documents")
             .select("id, filename, file_type")
@@ -902,7 +930,15 @@ tabularRouter.post("/:reviewId/generate", requireAuth, async (req, res) => {
         docs = data ?? [];
     }
     if (requestedDocIds && requestedDocIds.length > 0) {
-        const allowed = new Set(requestedDocIds);
+        // Validate access on every requested doc so a tampered payload can't
+        // cause generation against unrelated documents.
+        const safeIds = await filterAccessibleDocIds(
+            requestedDocIds,
+            userId,
+            userEmail,
+            db,
+        );
+        const allowed = new Set(safeIds);
         docs = docs.filter((d) => allowed.has(d.id as string));
     }
     const forceRerun = !!(requestedDocIds && requestedDocIds.length > 0);

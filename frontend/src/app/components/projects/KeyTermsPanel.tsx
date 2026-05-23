@@ -38,6 +38,19 @@ function formatTerm(months: number | null): string {
 
 function formatDate(iso: string | null): string {
     if (!iso) return "—";
+    // SQL DATE columns come back as "YYYY-MM-DD". Parsing those with the
+    // Date constructor triggers UTC interpretation, which can roll the day
+    // back in negative-UTC timezones. Build a local-time Date from the
+    // components instead.
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+        const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        return dt.toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+        });
+    }
     try {
         return new Date(iso).toLocaleDateString(undefined, {
             year: "numeric",
@@ -81,16 +94,24 @@ export function KeyTermsPanel({ projectId, filenameByDocId }: Props) {
         );
     }
 
-    // Build a chronological view per project so we can render deltas
-    // between consecutive contract versions ("renewed at $120k, +20% YoY").
-    const chronological = [...rows].sort((a, b) =>
-        a.extracted_at.localeCompare(b.extracted_at),
-    );
+    // Compute deltas only within the same document's lineage (re-extractions
+    // of the same contract). Comparing across distinct documents in a project
+    // — especially now that projects can span multiple counterparties — would
+    // produce misleading "+20% YoY" badges between unrelated contracts.
     const priorValueByRow = new Map<string, number | null>();
-    let lastValue: number | null = null;
-    for (const r of chronological) {
-        priorValueByRow.set(r.id, lastValue);
-        if (r.total_value_minor != null) lastValue = r.total_value_minor;
+    const byDoc = new Map<string, ContractFactsRow[]>();
+    for (const r of rows) {
+        const list = byDoc.get(r.document_id) ?? [];
+        list.push(r);
+        byDoc.set(r.document_id, list);
+    }
+    for (const list of byDoc.values()) {
+        list.sort((a, b) => a.extracted_at.localeCompare(b.extracted_at));
+        let lastValue: number | null = null;
+        for (const r of list) {
+            priorValueByRow.set(r.id, lastValue);
+            if (r.total_value_minor != null) lastValue = r.total_value_minor;
+        }
     }
 
     function renderDelta(

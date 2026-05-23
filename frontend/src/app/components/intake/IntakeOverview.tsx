@@ -175,7 +175,6 @@ export function IntakeOverview() {
                 new_project: {
                     name,
                     template,
-                    counterparty: topCp,
                 },
             });
             setSelected(new Set());
@@ -268,16 +267,10 @@ export function IntakeOverview() {
                         <option value="">Assign to existing project…</option>
                         {projects
                             .slice()
-                            .sort((a, b) =>
-                                (a.counterparty ?? a.name).localeCompare(
-                                    b.counterparty ?? b.name,
-                                ),
-                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
                             .map((p) => (
                                 <option key={p.id} value={p.id}>
-                                    {p.counterparty
-                                        ? `${p.counterparty} (${p.name})`
-                                        : p.name}
+                                    {p.name}
                                 </option>
                             ))}
                     </select>
@@ -380,11 +373,7 @@ function IntakeRow({
         return projects
             .map((p) => ({
                 project: p,
-                score: Math.max(
-                    fuzzyMatch(cp, p.counterparty),
-                    fuzzyMatch(cp, p.name),
-                    fuzzyMatch(cp, p.parent_counterparty),
-                ),
+                score: fuzzyMatch(cp, p.name),
             }))
             .filter((m) => m.score >= 0.7)
             .sort((a, b) => b.score - a.score)
@@ -423,13 +412,7 @@ function IntakeRow({
                     : cp
                 : doc.filename.replace(/\.[a-z0-9]{2,5}$/i, "");
             const r = await assignDocumentToProject(doc.id, {
-                new_project: {
-                    name,
-                    template,
-                    counterparty: doc.intake_counterparty ?? undefined,
-                    parent_counterparty:
-                        doc.intake_parent_counterparty ?? undefined,
-                },
+                new_project: { name, template },
             });
             onAssigned(r.project_id);
         } catch {
@@ -454,6 +437,11 @@ function IntakeRow({
                 <div className="text-sm font-medium text-gray-900 truncate">
                     {doc.filename}
                 </div>
+                {doc.intake_summary && (
+                    <div className="mt-0.5 text-[12px] text-gray-600 leading-snug">
+                        {doc.intake_summary}
+                    </div>
+                )}
                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
                     {analyzing ? (
                         <span className="text-gray-400 flex items-center gap-1">
@@ -514,7 +502,7 @@ function IntakeRow({
                                 title={`Assign to project "${m.project.name}"`}
                                 className="text-xs text-gray-700 hover:text-gray-900 underline underline-offset-2 disabled:opacity-50"
                             >
-                                {m.project.counterparty ?? m.project.name}
+                                {m.project.name}
                             </button>
                         ))}
                     </div>
@@ -534,16 +522,10 @@ function IntakeRow({
                             <option value="">Assign to…</option>
                             {projects
                                 .slice()
-                                .sort((a, b) =>
-                                    (a.counterparty ?? a.name).localeCompare(
-                                        b.counterparty ?? b.name,
-                                    ),
-                                )
+                                .sort((a, b) => a.name.localeCompare(b.name))
                                 .map((p) => (
                                     <option key={p.id} value={p.id}>
-                                        {p.counterparty
-                                            ? `${p.counterparty} (${p.name})`
-                                            : p.name}
+                                        {p.name}
                                     </option>
                                 ))}
                         </select>

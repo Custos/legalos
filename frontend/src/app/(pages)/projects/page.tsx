@@ -1,7 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { ProjectsOverview } from "@/app/components/projects/ProjectsOverview";
-
-export default function ProjectsPage() {
-    return <ProjectsOverview />;
+// /projects listing collapses into /matters under the new design. Per-project
+// detail still lives at /projects/[id] (the Studio · Workspace drilldown).
+export default function ProjectsListRedirect() {
+    redirect("/matters");
 }

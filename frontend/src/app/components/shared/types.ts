@@ -19,8 +19,6 @@ export interface MikeProject {
   shared_with: string[];
   template?: string | null;
   role?: "buyer" | "seller" | "mutual" | null;
-  counterparty?: string | null;
-  parent_counterparty?: string | null;
   created_at: string;
   updated_at: string;
   documents?: MikeDocument[];

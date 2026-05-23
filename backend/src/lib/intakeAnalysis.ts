@@ -31,6 +31,7 @@ Return ONLY a single minified JSON object, no markdown:
   "counterparty": <string or null>,
   "parent_counterparty": <string or null>,
   "lifecycle_hint": <string or null>,
+  "summary": <string or null>,
   "confidence": <number 0-1>
 }
 
@@ -40,6 +41,7 @@ Rules:
 - "counterparty": the OTHER party's legal entity name (not the user's organization). Null if undetermined.
 - "parent_counterparty": parent corporate entity of the COUNTERPARTY if the document references one (e.g. "Stripe Inc., a subsidiary of Stripe Holdings"). Otherwise null.
 - "lifecycle_hint": one of "original", "amendment", "renewal", "addendum", "sow", "order_form", "msa", "nda", "side_letter", or null. Pick the single best fit based on title/preamble.
+- "summary": one or two sentences (max ~200 chars) describing what this agreement actually covers — the product/service, deal shape, anything notable. Plain prose, no preamble. Null only if you truly can't tell.
 - "confidence": your overall confidence in this classification, 0.0 to 1.0.
 - High confidence threshold for counterparty. Null is the right answer when ambiguous.`;
 }
@@ -89,33 +91,42 @@ const KEEP_AS_IS = new Set([
     "CO.",
     "&",
 ]);
+function canonicaliseSuffix(token: string): string | null {
+    // Strip trailing period for matching, then canonicalise.
+    const bare = token.replace(/\.$/, "").toUpperCase();
+    if (bare === "INC") return "Inc.";
+    if (bare === "LLC") return "LLC";
+    if (bare === "LLP") return "LLP";
+    if (bare === "LP") return "LP";
+    if (bare === "LTD") return "Ltd.";
+    if (bare === "PLC") return "plc";
+    if (bare === "GMBH") return "GmbH";
+    if (bare === "AG") return "AG";
+    if (bare === "SA") return "S.A.";
+    if (bare === "CO") return "Co.";
+    if (bare === "CORP") return "Corp.";
+    if (bare === "CORPORATION") return "Corporation";
+    if (bare === "INCORPORATED") return "Incorporated";
+    if (bare === "LIMITED") return "Limited";
+    return null;
+}
+
 function normaliseEntityCase(input: string): string {
     const s = input.trim();
     if (!s) return s;
     if (s.length <= 4 && /^[A-Z0-9&.]+$/.test(s)) return s; // IBM, AT&T
     const isAllUpper = s === s.toUpperCase() && /[A-Z]/.test(s);
     const isAllLower = s === s.toLowerCase() && /[a-z]/.test(s);
-    if (!isAllUpper && !isAllLower) return s;
+    // Always canonicalise suffix tokens (Inc → Inc., Inc. → Inc., LLC → LLC,
+    // etc.) regardless of overall case so we don't end up with "Airbnb, Inc"
+    // and "Airbnb, Inc." treated as different entities.
     return s
         .split(/(\s+|[,;])/)
         .map((tok) => {
             if (/^\s+$/.test(tok) || /^[,;]$/.test(tok)) return tok;
-            const upper = tok.toUpperCase();
-            if (KEEP_AS_IS.has(upper)) {
-                // Canonicalise common suffix forms.
-                if (upper === "INC" || upper === "INC.") return "Inc.";
-                if (upper === "LLC") return "LLC";
-                if (upper === "LLP") return "LLP";
-                if (upper === "LP") return "LP";
-                if (upper === "LTD" || upper === "LTD.") return "Ltd.";
-                if (upper === "PLC") return "plc";
-                if (upper === "GMBH") return "GmbH";
-                if (upper === "AG") return "AG";
-                if (upper === "SA" || upper === "S.A" || upper === "S.A.")
-                    return "S.A.";
-                if (upper === "CO" || upper === "CO.") return "Co.";
-                return tok;
-            }
+            const canonical = canonicaliseSuffix(tok);
+            if (canonical) return canonical;
+            if (!isAllUpper && !isAllLower) return tok;
             return (
                 tok.charAt(0).toUpperCase() +
                 tok.slice(1).toLowerCase()
@@ -130,6 +141,7 @@ export interface IntakeAnalysis {
     counterparty: string | null;
     parent_counterparty: string | null;
     lifecycle_hint: string | null;
+    summary: string | null;
     confidence: number;
 }
 
@@ -198,6 +210,10 @@ export async function analyzeIntakeFromText(
                 parsed.lifecycle_hint.trim()
                     ? parsed.lifecycle_hint.trim()
                     : null,
+            summary:
+                typeof parsed.summary === "string" && parsed.summary.trim()
+                    ? parsed.summary.trim()
+                    : null,
             confidence:
                 typeof parsed.confidence === "number"
                     ? Math.max(0, Math.min(1, parsed.confidence))
@@ -256,6 +272,7 @@ export async function maybeAnalyzeIntake(opts: {
                 intake_counterparty: analysis.counterparty,
                 intake_parent_counterparty: analysis.parent_counterparty,
                 intake_lifecycle_hint: analysis.lifecycle_hint,
+                intake_summary: analysis.summary,
                 intake_confidence: analysis.confidence,
                 intake_analyzed_at: new Date().toISOString(),
             })

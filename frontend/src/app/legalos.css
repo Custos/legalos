@@ -1,0 +1,209 @@
+/* =============================================================
+   Legalos — Foundations
+   "Mission Critical" — monochromatic base, high-signal accents.
+   Adapted from claude.ai/design handoff bundle (May 2026).
+   ============================================================= */
+
+/* Inter + JetBrains Mono are loaded via <link> in app/layout.tsx so the
+ * @import doesn't end up after Tailwind's emitted rules (CSS spec
+ * forbids that). Source Serif 4 is local. */
+
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/SourceSerif4-VariableFont_opsz_wght.ttf') format('truetype-variations');
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/SourceSerif4-Italic-VariableFont_opsz_wght.ttf') format('truetype-variations');
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --ink-00: oklch(99.2% 0.003 75);
+  --ink-05: oklch(97.5% 0.004 75);
+  --ink-08: oklch(96% 0.004 75);
+  --ink-10: oklch(94.5% 0.005 75);
+  --ink-15: oklch(90.5% 0.006 75);
+  --ink-20: oklch(85.0% 0.007 75);
+  --ink-30: oklch(72.0% 0.008 75);
+  --ink-40: oklch(58.0% 0.009 75);
+  --ink-50: oklch(44.0% 0.010 75);
+  --ink-60: oklch(32.0% 0.011 75);
+  --ink-70: oklch(22.0% 0.012 75);
+  --ink-80: oklch(15.5% 0.013 75);
+  --ink-90: oklch(10.0% 0.014 75);
+  --ink-95: oklch(6.5%  0.012 75);
+
+  --bg:            var(--ink-00);
+  --bg-subtle:     var(--ink-05);
+  --bg-raised:     var(--ink-10);
+  --bg-sunken:     var(--ink-05);
+  --bg-inverse:    var(--ink-95);
+
+  --fg:            var(--ink-90);
+  --fg-strong:     var(--ink-95);
+  --fg-muted:      var(--ink-50);
+  --fg-subtle:     var(--ink-40);
+  --fg-faint:      var(--ink-30);
+  --fg-onInverse:  var(--ink-05);
+
+  --border:        var(--ink-20);
+  --border-strong: var(--ink-30);
+  --hairline:      var(--ink-15);
+  --divider:       var(--ink-15);
+
+  --signal-red:        oklch(54% 0.180 27);
+  --signal-red-soft:   oklch(94% 0.035 27);
+  --signal-red-edge:   oklch(78% 0.090 27);
+
+  --signal-amber:      oklch(72% 0.150 75);
+  --signal-amber-soft: oklch(95% 0.040 85);
+  --signal-amber-edge: oklch(82% 0.080 80);
+
+  --signal-green:      oklch(56% 0.130 145);
+  --signal-green-soft: oklch(94% 0.030 145);
+  --signal-green-edge: oklch(78% 0.075 145);
+
+  --signal-blue:       oklch(48% 0.150 250);
+  --signal-blue-soft:  oklch(94% 0.030 250);
+  --signal-blue-edge:  oklch(76% 0.080 250);
+
+  --signal-agent:      oklch(28% 0.025 240);
+  --signal-agent-soft: oklch(95% 0.012 240);
+  --signal-agent-edge: oklch(78% 0.020 240);
+
+  --signal-violet:      var(--signal-agent);
+  --signal-violet-soft: var(--signal-agent-soft);
+  --signal-violet-edge: var(--signal-agent-edge);
+
+  --delta-up:    oklch(48% 0.140 200);
+  --delta-down:  oklch(52% 0.150 35);
+  --delta-flat:  var(--ink-40);
+
+  --redline-ins:        oklch(46% 0.140 145);
+  --redline-ins-bg:     oklch(95% 0.040 145);
+  --redline-del:        oklch(50% 0.180 27);
+  --redline-del-bg:     oklch(95% 0.045 27);
+  --redline-comment-bg: oklch(95% 0.035 75);
+
+  --font-sans:   var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-serif:  'Source Serif 4', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --font-mono:   var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --fs-3xs:  10px;
+  --fs-2xs:  11px;
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-md:   14px;
+  --fs-lg:   16px;
+  --fs-xl:   18px;
+  --fs-2xl:  22px;
+  --fs-3xl:  28px;
+  --fs-4xl:  36px;
+  --fs-5xl:  48px;
+
+  --lh-tight:  1.15;
+  --lh-snug:   1.30;
+  --lh-normal: 1.45;
+  --lh-prose:  1.60;
+
+  --tracking-tight: -0.02em;
+  --tracking-snug:  -0.01em;
+  --tracking-flat:  0;
+  --tracking-wide:   0.02em;
+  --tracking-caps:   0.08em;
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --space-0:  0;
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  12px;
+  --space-6:  16px;
+  --space-7:  20px;
+  --space-8:  24px;
+  --space-9:  32px;
+  --space-10: 40px;
+  --space-11: 56px;
+  --space-12: 72px;
+
+  --radius-0:   0;
+  --radius-xs:  2px;
+  --radius-sm:  3px;
+  --radius-md:  4px;
+  --radius-lg:  6px;
+  --radius-xl:  8px;
+  --radius-pill: 999px;
+
+  --shadow-0: none;
+  --shadow-1: 0 1px 0 0 rgb(0 0 0 / 0.04), 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-2: 0 1px 0 0 rgb(0 0 0 / 0.05), 0 4px 12px -2px rgb(0 0 0 / 0.08);
+  --shadow-3: 0 2px 0 0 rgb(0 0 0 / 0.04), 0 12px 32px -6px rgb(0 0 0 / 0.16);
+  --shadow-inset: inset 0 0 0 1px var(--border);
+
+  --chrome-h:        36px;
+  --statusbar-h:     22px;
+  --tab-h:           30px;
+  --row-h-dense:     26px;
+  --row-h:           32px;
+  --row-h-relaxed:   40px;
+  --sidebar-w:       240px;
+  --rail-w:          200px;
+  --pane-min:        320px;
+
+  --ease-out:    cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --dur-fast:    80ms;
+  --dur-base:    140ms;
+  --dur-slow:    220ms;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  font-size:   var(--fs-md);
+  line-height: var(--lh-normal);
+  color:       var(--fg);
+  background:  var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+.legalos-eyebrow {
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.legalos-mono { font-family: var(--font-mono); }
+.legalos-tabular { font-variant-numeric: tabular-nums; }
+.legalos-prose {
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-prose);
+  color: var(--fg);
+}
+
+@keyframes ai-blink { 50% { opacity: 0; } }
+
+::selection { background: oklch(85% 0.10 75); color: var(--fg-strong); }
+
+/* Custom scrollbar to match IDE feel */
+.legalos-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.legalos-scroll::-webkit-scrollbar-thumb {
+  background: var(--ink-15);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
